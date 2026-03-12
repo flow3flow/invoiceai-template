@@ -10,7 +10,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 import Index from "./pages/Index";
 import InvoiceGenerator from "./pages/InvoiceGenerator";
-import Dashboard from "./pages/Dashboard";
+import Dashboard from "@/pages/Dashboard";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import ForgotPassword from "./pages/ForgotPassword";

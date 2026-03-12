@@ -18,18 +18,23 @@ export async function generateInvoicePdf(
   issuer: PdfBusinessProfile,
   client: PdfClient
 ): Promise<void> {
-  const blob = await pdf(
-    createElement(InvoiceDocument, { invoice, issuer, client })
-  ).toBlob();
+  const pdfElement = createElement(InvoiceDocument, {
+    invoice,
+    issuer,
+    client,
+  });
+
+  const blob = await pdf(pdfElement as any).toBlob();
 
   const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
+  const link = window.document.createElement("a");
 
   link.href = url;
   link.download = `${invoice.invoice_number}.pdf`;
-  document.body.appendChild(link);
+
+  window.document.body.appendChild(link);
   link.click();
-  document.body.removeChild(link);
+  window.document.body.removeChild(link);
 
   URL.revokeObjectURL(url);
 }
@@ -43,7 +48,11 @@ export async function generateInvoicePdfBlob(
   issuer: PdfBusinessProfile,
   client: PdfClient
 ): Promise<Blob> {
-  return pdf(
-    createElement(InvoiceDocument, { invoice, issuer, client })
-  ).toBlob();
+  const pdfElement = createElement(InvoiceDocument, {
+    invoice,
+    issuer,
+    client,
+  });
+
+  return pdf(pdfElement as any).toBlob();
 }

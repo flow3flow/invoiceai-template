@@ -46,8 +46,32 @@ export interface Invoice {
 }
 
 export interface InvoiceWithClient extends Invoice {
-  // Supabase join returns the table name as key
-  clients: { name: string; company: string | null } | null;
+  clients: {
+    name: string;
+    company: string | null;
+    email?: string | null;
+    street?: string | null;
+    zip_code?: string | null;
+    city?: string | null;
+    country_code?: string | null;
+    vat_number?: string | null;
+  } | null;
+  business_profiles: {
+    company_name: string;
+    vat_number: string | null;
+    street: string | null;
+    zip_code: string | null;
+    city: string | null;
+    country_code: string;
+    email: string | null;
+    iban: string | null;
+  } | null;
+  invoice_items: {
+    description: string;
+    quantity: number;
+    unit_price: number;
+    vat_rate: number;
+  }[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -58,7 +82,6 @@ export const useInvoices = () => {
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
 
-  // ─── Get all invoices (with client join) ──────────────────────────────────
   const getInvoices = async (): Promise<InvoiceWithClient[]> => {
     if (!user) return [];
 
@@ -69,7 +92,29 @@ export const useInvoices = () => {
           *,
           clients (
             name,
-            company
+            company,
+            email,
+            street,
+            zip_code,
+            city,
+            country_code,
+            vat_number
+          ),
+          business_profiles (
+            company_name,
+            vat_number,
+            street,
+            zip_code,
+            city,
+            country_code,
+            email,
+            iban
+          ),
+          invoice_items (
+            description,
+            quantity,
+            unit_price,
+            vat_rate
           )
         `)
         .order("created_at", { ascending: false });
@@ -83,7 +128,6 @@ export const useInvoices = () => {
     }
   };
 
-  // ─── Create invoice ───────────────────────────────────────────────────────
   const createInvoice = async (input: CreateInvoiceInput): Promise<Invoice | null> => {
     if (!user) {
       toast.error("Utilisateur non authentifié");
@@ -99,7 +143,6 @@ export const useInvoices = () => {
     let invoiceId: string | null = null;
 
     try {
-      // ─── Calcul des totaux ─────────────────────────────
       const totals = computeTotals(
         input.items.map((i) => ({
           quantity: i.quantity,
@@ -108,7 +151,6 @@ export const useInvoices = () => {
         }))
       );
 
-      // ─── Insertion facture ─────────────────────────────
       const { data: invoice, error: invoiceError } = await supabase
         .from("invoices")
         .insert([
@@ -134,7 +176,6 @@ export const useInvoices = () => {
 
       invoiceId = invoice.id;
 
-      // ─── Insertion lignes de facture ───────────────────
       const { error: itemsError } = await supabase.from("invoice_items").insert(
         input.items.map((item) => ({
           invoice_id: invoice.id,
@@ -150,7 +191,6 @@ export const useInvoices = () => {
       toast.success(`Facture ${invoice.invoice_number} créée`);
       return invoice;
     } catch (err: any) {
-      // rollback simple si la création a échoué après insertion
       if (invoiceId) {
         await supabase.from("invoices").delete().eq("id", invoiceId);
       }
