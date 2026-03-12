@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { FileText, LayoutDashboard, Users } from "lucide-react"; 
+import { FileText, LayoutDashboard, Settings, Users } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage, type Language } from "@/contexts/LanguageContext";
 import {
@@ -19,15 +19,11 @@ const languages: { code: Language; flag: string; label: string }[] = [
 ];
 
 export function Navbar() {
-  // Correction ici : on récupère 'user' et 'signOut' du contexte
   const { user, signOut } = useAuth();
-  
-  // On recrée les variables dont le reste du fichier a besoin
-  const isLoggedIn = !!user; 
+  const isLoggedIn = !!user;
   const logout = signOut;
 
   const { lang, setLang, t } = useLanguage();
-
   const currentLang = languages.find((l) => l.code === lang)!;
 
   return (
@@ -41,7 +37,6 @@ export function Navbar() {
         </Link>
 
         <div className="flex items-center gap-2">
-          {/* Liens de navigation (Desktop) - Visibles seulement si connecté */}
           {isLoggedIn && (
             <div className="hidden md:flex items-center gap-1 mr-4 border-r pr-4">
               <Button variant="ghost" asChild size="sm">
@@ -50,10 +45,18 @@ export function Navbar() {
                   {t("nav.dashboard")}
                 </Link>
               </Button>
+
               <Button variant="ghost" asChild size="sm">
                 <Link to="/clients" className="gap-2">
                   <Users className="h-4 w-4" />
                   Clients
+                </Link>
+              </Button>
+
+              <Button variant="ghost" asChild size="sm">
+                <Link to="/settings" className="gap-2">
+                  <Settings className="h-4 w-4" />
+                  Paramètres
                 </Link>
               </Button>
             </div>

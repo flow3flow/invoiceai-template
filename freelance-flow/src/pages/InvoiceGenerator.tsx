@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Navbar } from "@/components/Navbar";
 import { InvoiceForm } from "@/components/invoice/InvoiceForm";
@@ -7,11 +7,10 @@ import { ClientSelect } from "@/components/invoice/ClientSelect";
 import { Button } from "@/components/ui/button";
 import { useInvoices } from "@/hooks/useInvoices";
 import { useClients } from "@/hooks/useClients";
+import { useBusinessProfiles } from "@/hooks/useBusinessProfiles";
 import { toast } from "sonner";
 import type { InvoiceData } from "@/types/invoice";
 import { Save } from "lucide-react";
-
-// ─── Helper ───────────────────────────────────────────────────────────────────
 
 function addDaysToDate(isoDate: string, days: number): string {
   const d = new Date(isoDate);
@@ -19,7 +18,20 @@ function addDaysToDate(isoDate: string, days: number): string {
   return d.toISOString().split("T")[0];
 }
 
-// ─── Default state ────────────────────────────────────────────────────────────
+function formatBusinessAddress(profile: {
+  street: string | null;
+  zip_code: string | null;
+  city: string | null;
+  country_code: string;
+}) {
+  return [
+    profile.street,
+    [profile.zip_code, profile.city].filter(Boolean).join(" "),
+    profile.country_code,
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
 
 const defaultInvoice: InvoiceData = {
   companyName: "",
@@ -31,7 +43,9 @@ const defaultInvoice: InvoiceData = {
   clientAddress: "",
   clientVat: "",
   clientEmail: "",
-  invoiceNumber: `INV-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`,
+  invoiceNumber: `INV-${new Date().getFullYear()}-${String(
+    Math.floor(Math.random() * 9000) + 1000
+  )}`,
   invoiceDate: new Date().toISOString().split("T")[0],
   dueDate: "30",
   lineItems: [{ description: "", quantity: 1, unitPrice: 0, vatRate: 21 }],
@@ -40,8 +54,6 @@ const defaultInvoice: InvoiceData = {
   iban: "",
 };
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
 const InvoiceGenerator = () => {
   const [invoice, setInvoice] = useState<InvoiceData>(defaultInvoice);
   const [selectedClientId, setSelectedClientId] = useState<string>("");
@@ -49,32 +61,52 @@ const InvoiceGenerator = () => {
 
   const navigate = useNavigate();
   const { createInvoice, loading } = useInvoices();
-  const { clients } = useClients(); // Pour auto-fill — même source que ClientSelect
+  const { clients } = useClients();
+  const { defaultProfile } = useBusinessProfiles();
 
   const updateInvoice = useCallback((updates: Partial<InvoiceData>) => {
     setInvoice((prev) => ({ ...prev, ...updates }));
   }, []);
 
-  // B. Auto-fill des champs client depuis la sélection
+  useEffect(() => {
+    if (!defaultProfile) return;
+
+    updateInvoice({
+      companyName: defaultProfile.company_name ?? "",
+      companyAddress: formatBusinessAddress(defaultProfile),
+      companyVat: defaultProfile.vat_number ?? "",
+      companyEmail: defaultProfile.email ?? "",
+      iban: defaultProfile.iban ?? "",
+    });
+  }, [defaultProfile, updateInvoice]);
+
   const handleClientChange = (clientId: string) => {
     setSelectedClientId(clientId);
     const client = clients.find((c) => c.id === clientId);
+
     if (client) {
       updateInvoice({
-        clientName:    client.name,
+        clientName: client.name,
         clientAddress: [client.street, client.zip_code, client.city, client.country_code]
           .filter(Boolean)
           .join(", "),
-        clientVat:   client.vat_number ?? "",
+        clientVat: client.vat_number ?? "",
         clientEmail: client.email ?? "",
       });
     }
   };
 
   const handleSaveDraft = async () => {
-    if (!selectedClientId) return;
+    if (!selectedClientId) {
+      toast.error("Veuillez sélectionner un client");
+      return;
+    }
 
-    // C. Validation minimale des lignes
+    if (!defaultProfile) {
+      toast.error("Veuillez créer un profil entreprise par défaut dans Paramètres");
+      return;
+    }
+
     const invalidItems = invoice.lineItems.filter(
       (item) =>
         !item.description.trim() ||
@@ -82,6 +114,7 @@ const InvoiceGenerator = () => {
         item.unitPrice < 0 ||
         item.vatRate < 0
     );
+
     if (invalidItems.length > 0) {
       toast.error("Vérifiez vos lignes : description vide, quantité ou prix invalide");
       return;
@@ -98,20 +131,20 @@ const InvoiceGenerator = () => {
       : null;
 
     const result = await createInvoice({
-      client_id:      selectedClientId,
+      client_id: selectedClientId,
+      business_profile_id: defaultProfile.id,
       invoice_number: invoice.invoiceNumber,
-      issue_date:     invoice.invoiceDate,
+      issue_date: invoice.invoiceDate,
       due_date,
-      notes:          invoice.notes || null,
+      notes: invoice.notes || null,
       items: invoice.lineItems.map((item) => ({
         description: item.description,
-        quantity:    item.quantity,
-        unit_price:  item.unitPrice,
-        vat_rate:    item.vatRate,
+        quantity: item.quantity,
+        unit_price: item.unitPrice,
+        vat_rate: item.vatRate,
       })),
     });
 
-    // D. Post-save : bloquer double soumission + redirect
     if (result) {
       setSaved(true);
       navigate("/dashboard");
@@ -123,14 +156,11 @@ const InvoiceGenerator = () => {
       <Navbar />
       <div className="pt-20 pb-8">
         <div className="container mx-auto px-4">
-
           <div className="flex items-end justify-between gap-4 mb-6">
             <div className="w-72">
-              <ClientSelect
-                value={selectedClientId}
-                onChange={handleClientChange}
-              />
+              <ClientSelect value={selectedClientId} onChange={handleClientChange} />
             </div>
+
             <Button
               onClick={handleSaveDraft}
               disabled={loading || !selectedClientId || saved}
@@ -142,12 +172,15 @@ const InvoiceGenerator = () => {
           </div>
 
           <div className="grid gap-8 lg:grid-cols-2">
-            <InvoiceForm invoice={invoice} onUpdate={updateInvoice} clientLocked={!!selectedClientId} />
+            <InvoiceForm
+              invoice={invoice}
+              onUpdate={updateInvoice}
+              clientLocked={!!selectedClientId}
+            />
             <div className="lg:sticky lg:top-24 lg:self-start">
               <InvoicePreview invoice={invoice} />
             </div>
           </div>
-
         </div>
       </div>
     </div>

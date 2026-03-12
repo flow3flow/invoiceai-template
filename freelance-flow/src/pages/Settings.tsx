@@ -3,11 +3,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Building2, FileText, Mail, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
+import BusinessProfilesSection from "@/components/settings/BusinessProfilesSection";
 
 const Settings = () => {
   const { t } = useLanguage();
@@ -21,8 +28,12 @@ const Settings = () => {
       <Navbar />
       <div className="pt-20 pb-8">
         <div className="container mx-auto px-4 max-w-3xl">
-          <h1 className="font-display text-3xl font-bold mb-2">{t("settings.title")}</h1>
+          <h1 className="font-display text-3xl font-bold mb-2">
+            {t("settings.title")}
+          </h1>
           <p className="text-muted-foreground mb-8">{t("settings.subtitle")}</p>
+
+          <BusinessProfilesSection />
 
           <Card className="glass border-border/50 mb-6">
             <CardHeader>
@@ -71,7 +82,9 @@ const Settings = () => {
                 <div className="space-y-2">
                   <Label>{t("settings.defaultVat")}</Label>
                   <Select defaultValue="21">
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="0">0%</SelectItem>
                       <SelectItem value="6">6%</SelectItem>
@@ -82,7 +95,9 @@ const Settings = () => {
                 <div className="space-y-2">
                   <Label>{t("settings.paymentTerms")}</Label>
                   <Select defaultValue="30">
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="15">15 {t("settings.days")}</SelectItem>
                       <SelectItem value="30">30 {t("settings.days")}</SelectItem>
@@ -124,7 +139,9 @@ const Settings = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-semibold">{t("settings.starterPlan")}</p>
-                  <p className="text-sm text-muted-foreground">{t("settings.starterDesc")}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {t("settings.starterDesc")}
+                  </p>
                 </div>
                 <Button variant="hero-outline">{t("settings.upgrade")}</Button>
               </div>
@@ -133,7 +150,9 @@ const Settings = () => {
 
           <Separator className="my-6" />
           <div className="flex justify-end">
-            <Button variant="hero" onClick={handleSave}>{t("settings.save")}</Button>
+            <Button variant="hero" onClick={handleSave}>
+              {t("settings.save")}
+            </Button>
           </div>
         </div>
       </div>
