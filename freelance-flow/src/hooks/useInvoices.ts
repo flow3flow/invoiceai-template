@@ -8,6 +8,8 @@ import { toast } from "sonner";
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
+export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue" | "cancelled";
+
 export interface InvoiceItemInput {
   description: string;
   quantity: number;
@@ -31,7 +33,7 @@ export interface Invoice {
   client_id: string;
   business_profile_id: string;
   invoice_number: string;
-  status: string;
+  status: InvoiceStatus;
   issue_date: string;
   due_date: string | null;
   subtotal: number;
@@ -43,6 +45,11 @@ export interface Invoice {
   updated_at: string;
 }
 
+export interface InvoiceWithClient extends Invoice {
+  // Supabase join returns the table name as key
+  clients: { name: string; company: string | null } | null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Hook
 // ─────────────────────────────────────────────────────────────────────────────
@@ -51,6 +58,32 @@ export const useInvoices = () => {
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
 
+  // ─── Get all invoices (with client join) ──────────────────────────────────
+  const getInvoices = async (): Promise<InvoiceWithClient[]> => {
+    if (!user) return [];
+
+    try {
+      const { data, error } = await supabase
+        .from("invoices")
+        .select(`
+          *,
+          clients (
+            name,
+            company
+          )
+        `)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      return (data ?? []) as InvoiceWithClient[];
+    } catch (err: any) {
+      toast.error("Erreur lors du chargement des factures");
+      console.error(err);
+      return [];
+    }
+  };
+
+  // ─── Create invoice ───────────────────────────────────────────────────────
   const createInvoice = async (input: CreateInvoiceInput): Promise<Invoice | null> => {
     if (!user) {
       toast.error("Utilisateur non authentifié");
@@ -137,5 +170,5 @@ export const useInvoices = () => {
     }
   };
 
-  return { createInvoice, loading };
+  return { createInvoice, getInvoices, loading };
 };
