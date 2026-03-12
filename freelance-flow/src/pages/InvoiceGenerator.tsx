@@ -4,12 +4,14 @@ import { Navbar } from "@/components/Navbar";
 import { InvoiceForm } from "@/components/invoice/InvoiceForm";
 import { InvoicePreview } from "@/components/invoice/InvoicePreview";
 import { ClientSelect } from "@/components/invoice/ClientSelect";
+import { BusinessProfileSelect } from "@/components/invoice/BusinessProfileSelect";
 import { Button } from "@/components/ui/button";
 import { useInvoices } from "@/hooks/useInvoices";
 import { useClients } from "@/hooks/useClients";
 import { useBusinessProfiles } from "@/hooks/useBusinessProfiles";
 import { toast } from "sonner";
 import type { InvoiceData } from "@/types/invoice";
+import type { BusinessProfile } from "@/hooks/useBusinessProfiles";
 import { Save } from "lucide-react";
 
 function addDaysToDate(isoDate: string, days: number): string {
@@ -57,6 +59,8 @@ const defaultInvoice: InvoiceData = {
 const InvoiceGenerator = () => {
   const [invoice, setInvoice] = useState<InvoiceData>(defaultInvoice);
   const [selectedClientId, setSelectedClientId] = useState<string>("");
+  const [selectedBusinessProfile, setSelectedBusinessProfile] =
+    useState<BusinessProfile | null>(null);
   const [saved, setSaved] = useState(false);
 
   const navigate = useNavigate();
@@ -69,16 +73,17 @@ const InvoiceGenerator = () => {
   }, []);
 
   useEffect(() => {
-    if (!defaultProfile) return;
+    const profile = selectedBusinessProfile ?? defaultProfile;
+    if (!profile) return;
 
     updateInvoice({
-      companyName: defaultProfile.company_name ?? "",
-      companyAddress: formatBusinessAddress(defaultProfile),
-      companyVat: defaultProfile.vat_number ?? "",
-      companyEmail: defaultProfile.email ?? "",
-      iban: defaultProfile.iban ?? "",
+      companyName: profile.company_name ?? "",
+      companyAddress: formatBusinessAddress(profile),
+      companyVat: profile.vat_number ?? "",
+      companyEmail: profile.email ?? "",
+      iban: profile.iban ?? "",
     });
-  }, [defaultProfile, updateInvoice]);
+  }, [selectedBusinessProfile, defaultProfile, updateInvoice]);
 
   const handleClientChange = (clientId: string) => {
     setSelectedClientId(clientId);
@@ -102,7 +107,7 @@ const InvoiceGenerator = () => {
       return;
     }
 
-    if (!defaultProfile) {
+    if (!selectedBusinessProfile) {
       toast.error("Veuillez créer un profil entreprise par défaut dans Paramètres");
       return;
     }
@@ -132,7 +137,7 @@ const InvoiceGenerator = () => {
 
     const result = await createInvoice({
       client_id: selectedClientId,
-      business_profile_id: defaultProfile.id,
+      business_profile_id: selectedBusinessProfile.id,
       invoice_number: invoice.invoiceNumber,
       issue_date: invoice.invoiceDate,
       due_date,
@@ -156,15 +161,24 @@ const InvoiceGenerator = () => {
       <Navbar />
       <div className="pt-20 pb-8">
         <div className="container mx-auto px-4">
-          <div className="flex items-end justify-between gap-4 mb-6">
-            <div className="w-72">
-              <ClientSelect value={selectedClientId} onChange={handleClientChange} />
+          <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
+            <div className="flex flex-wrap items-end gap-4 flex-1 min-w-0">
+              <div className="w-72">
+                <ClientSelect value={selectedClientId} onChange={handleClientChange} />
+              </div>
+
+              <div className="w-72">
+                <BusinessProfileSelect
+                  value={selectedBusinessProfile?.id ?? null}
+                  onChange={setSelectedBusinessProfile}
+                />
+              </div>
             </div>
 
             <Button
               onClick={handleSaveDraft}
               disabled={loading || !selectedClientId || saved}
-              className="gap-2"
+              className="gap-2 shrink-0"
             >
               <Save className="h-4 w-4" />
               {loading ? "Enregistrement..." : saved ? "Enregistré ✓" : "Enregistrer en brouillon"}
