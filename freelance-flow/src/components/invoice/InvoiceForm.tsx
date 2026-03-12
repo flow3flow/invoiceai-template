@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,9 +12,10 @@ import { useLanguage } from "@/contexts/LanguageContext";
 interface InvoiceFormProps {
   invoice: InvoiceData;
   onUpdate: (updates: Partial<InvoiceData>) => void;
+  clientLocked?: boolean; // ← ajout
 }
 
-export function InvoiceForm({ invoice, onUpdate }: InvoiceFormProps) {
+export function InvoiceForm({ invoice, onUpdate, clientLocked = false }: InvoiceFormProps) {
   const { t } = useLanguage();
 
   const updateLineItem = (index: number, field: keyof LineItem, value: string | number) => {
@@ -77,31 +79,58 @@ export function InvoiceForm({ invoice, onUpdate }: InvoiceFormProps) {
         </CardContent>
       </Card>
 
+      {/* ─── Section client — verrouillée si clientLocked ─────────────────── */}
       <Card className="glass border-border/50">
         <CardHeader className="pb-4">
           <CardTitle className="flex items-center gap-2 font-display text-lg">
             <User className="h-5 w-5 text-primary" />
             {t("form.clientInfo")}
+            {clientLocked && (
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                (verrouillé — client sélectionné)
+              </span>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>{t("form.clientName")}</Label>
-              <Input placeholder="Client Company" value={invoice.clientName} onChange={(e) => onUpdate({ clientName: e.target.value })} />
+              <Input
+                placeholder="Client Company"
+                value={invoice.clientName}
+                onChange={(e) => onUpdate({ clientName: e.target.value })}
+                disabled={clientLocked}
+              />
             </div>
             <div className="space-y-2">
               <Label>{t("form.vatNumber")}</Label>
-              <Input placeholder="FR12345678901" value={invoice.clientVat} onChange={(e) => onUpdate({ clientVat: e.target.value })} />
+              <Input
+                placeholder="FR12345678901"
+                value={invoice.clientVat}
+                onChange={(e) => onUpdate({ clientVat: e.target.value })}
+                disabled={clientLocked}
+              />
             </div>
           </div>
           <div className="space-y-2">
             <Label>{t("form.address")}</Label>
-            <Input placeholder="Street, City, Country" value={invoice.clientAddress} onChange={(e) => onUpdate({ clientAddress: e.target.value })} />
+            <Input
+              placeholder="Street, City, Country"
+              value={invoice.clientAddress}
+              onChange={(e) => onUpdate({ clientAddress: e.target.value })}
+              disabled={clientLocked}
+            />
           </div>
           <div className="space-y-2">
             <Label>{t("form.email")}</Label>
-            <Input type="email" placeholder="client@company.com" value={invoice.clientEmail} onChange={(e) => onUpdate({ clientEmail: e.target.value })} />
+            <Input
+              type="email"
+              placeholder="client@company.com"
+              value={invoice.clientEmail}
+              onChange={(e) => onUpdate({ clientEmail: e.target.value })}
+              disabled={clientLocked}
+            />
           </div>
         </CardContent>
       </Card>

@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { computeTotals } from '@/lib/invoiceCalculations';
 import { toast } from 'sonner';
 
-// ─── Types stricts — alignés schéma DB confirmé ───────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface InvoiceItemInput {
   description: string;
@@ -15,8 +16,8 @@ export interface InvoiceItemInput {
 export interface CreateInvoiceInput {
   client_id: string;
   invoice_number: string;
-  issue_date: string;       // "YYYY-MM-DD"
-  due_date?: string | null; // "YYYY-MM-DD" ou null
+  issue_date: string;
+  due_date?: string | null;
   notes?: string | null;
   items: InvoiceItemInput[];
 }
@@ -38,23 +39,6 @@ export interface Invoice {
   updated_at: string;
 }
 
-// ─── Calculs ──────────────────────────────────────────────────────────────────
-
-function computeTotals(items: InvoiceItemInput[]) {
-  let subtotal = 0;
-  let vat_amount = 0;
-  for (const item of items) {
-    const line = item.quantity * item.unit_price;
-    subtotal += line;
-    vat_amount += line * (item.vat_rate / 100);
-  }
-  return {
-    subtotal:   Math.round(subtotal * 100) / 100,
-    vat_amount: Math.round(vat_amount * 100) / 100,
-    total:      Math.round((subtotal + vat_amount) * 100) / 100,
-  };
-}
-
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export const useInvoices = () => {
@@ -69,7 +53,14 @@ export const useInvoices = () => {
     let invoiceId: string | null = null;
 
     try {
-      const totals = computeTotals(input.items);
+      // Calcul via source unique — aligné avec InvoicePreview
+      const totals = computeTotals(
+        input.items.map(i => ({
+          quantity:  i.quantity,
+          unitPrice: i.unit_price,
+          vatRate:   i.vat_rate,
+        }))
+      );
 
       // 1. Insertion facture
       const { data: invoice, error: invoiceError } = await supabase
@@ -112,7 +103,6 @@ export const useInvoices = () => {
       return invoice;
 
     } catch (err: any) {
-      // Rollback manuel
       if (invoiceId) {
         await supabase.from('invoices').delete().eq('id', invoiceId);
       }

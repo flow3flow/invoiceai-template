@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useRef } from "react";  // supprime useMemo
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Download, Mail, Save } from "lucide-react";
@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { computeTotals } from "@/lib/invoiceCalculations"; // ← source unique
 
 interface InvoicePreviewProps {
   invoice: InvoiceData;
@@ -17,23 +18,15 @@ export function InvoicePreview({ invoice }: InvoicePreviewProps) {
   const previewRef = useRef<HTMLDivElement>(null);
   const { t } = useLanguage();
 
-  const calculations = useMemo(() => {
-    let subtotal = 0;
-    let totalVat = 0;
-    invoice.lineItems.forEach((item) => {
-      const lineTotal = item.quantity * item.unitPrice;
-      subtotal += lineTotal;
-      totalVat += lineTotal * (item.vatRate / 100);
-    });
-    return { subtotal, totalVat, total: subtotal + totalVat };
-  }, [invoice.lineItems]);
+  // A. Calcul via source unique — identique à useInvoices
+  const calculations = computeTotals(invoice.lineItems);
 
-  const dueDate = useMemo(() => {
+  const dueDate = (() => {
     if (!invoice.invoiceDate) return "";
     const d = new Date(invoice.invoiceDate);
     d.setDate(d.getDate() + Number(invoice.dueDate));
     return d.toLocaleDateString("en-GB");
-  }, [invoice.invoiceDate, invoice.dueDate]);
+  })();
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return "";
@@ -152,7 +145,7 @@ export function InvoicePreview({ invoice }: InvoicePreviewProps) {
               </div>
               <div className="flex justify-between text-gray-600">
                 <span>{t("preview.vatLabel")}</span>
-                <span>€{calculations.totalVat.toFixed(2)}</span>
+                <span>€{calculations.vat_amount.toFixed(2)}</span>
               </div>
               <div className="flex justify-between border-t-2 border-gray-900 pt-2 text-lg font-bold text-gray-900">
                 <span>{t("preview.totalLabel")}</span>
