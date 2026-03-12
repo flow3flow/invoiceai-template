@@ -59,7 +59,6 @@ const defaultInvoice: InvoiceData = {
 const InvoiceGenerator = () => {
   const [invoice, setInvoice] = useState<InvoiceData>(defaultInvoice);
   const [selectedClientId, setSelectedClientId] = useState<string>("");
-  // ── NEW: selected business profile state ─────────────────────────────────
   const [selectedBusinessProfile, setSelectedBusinessProfile] =
     useState<BusinessProfile | null>(null);
   const [saved, setSaved] = useState(false);
@@ -73,8 +72,6 @@ const InvoiceGenerator = () => {
     setInvoice((prev) => ({ ...prev, ...updates }));
   }, []);
 
-  // Auto-fill company fields when selected business profile changes
-  // (covers both default selection on mount and manual profile switch)
   useEffect(() => {
     const profile = selectedBusinessProfile ?? defaultProfile;
     if (!profile) return;
@@ -110,7 +107,6 @@ const InvoiceGenerator = () => {
       return;
     }
 
-    // ── UPDATED: use selectedBusinessProfile instead of defaultProfile ─────
     if (!selectedBusinessProfile) {
       toast.error("Veuillez créer un profil entreprise par défaut dans Paramètres");
       return;
@@ -141,7 +137,6 @@ const InvoiceGenerator = () => {
 
     const result = await createInvoice({
       client_id: selectedClientId,
-      // ── UPDATED: use selectedBusinessProfile.id ────────────────────────
       business_profile_id: selectedBusinessProfile.id,
       invoice_number: invoice.invoiceNumber,
       issue_date: invoice.invoiceDate,
@@ -167,14 +162,11 @@ const InvoiceGenerator = () => {
       <div className="pt-20 pb-8">
         <div className="container mx-auto px-4">
           <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
-            {/* ── Selectors row ────────────────────────────────────────── */}
             <div className="flex flex-wrap items-end gap-4 flex-1 min-w-0">
-              {/* Client selector — unchanged */}
               <div className="w-72">
                 <ClientSelect value={selectedClientId} onChange={handleClientChange} />
               </div>
 
-              {/* ── NEW: Business profile selector ───────────────────── */}
               <div className="w-72">
                 <BusinessProfileSelect
                   value={selectedBusinessProfile?.id ?? null}
@@ -183,7 +175,6 @@ const InvoiceGenerator = () => {
               </div>
             </div>
 
-            {/* Save button — unchanged */}
             <Button
               onClick={handleSaveDraft}
               disabled={loading || !selectedClientId || saved}
@@ -209,3 +200,5 @@ const InvoiceGenerator = () => {
     </div>
   );
 };
+
+export default InvoiceGenerator;
