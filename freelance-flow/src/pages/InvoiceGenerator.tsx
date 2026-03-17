@@ -14,6 +14,10 @@ import type { InvoiceData } from "@/types/invoice";
 import type { BusinessProfile } from "@/hooks/useBusinessProfiles";
 import { Save } from "lucide-react";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
 function addDaysToDate(isoDate: string, days: number): string {
   const d = new Date(isoDate);
   d.setDate(d.getDate() + days);
@@ -25,7 +29,7 @@ function formatBusinessAddress(profile: {
   zip_code: string | null;
   city: string | null;
   country_code: string;
-}) {
+}): string {
   return [
     profile.street,
     [profile.zip_code, profile.city].filter(Boolean).join(" "),
@@ -34,6 +38,10 @@ function formatBusinessAddress(profile: {
     .filter(Boolean)
     .join(", ");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// État initial — numéro vide, sera rempli par la DB au montage
+// ─────────────────────────────────────────────────────────────────────────────
 
 const defaultInvoice: InvoiceData = {
   companyName: "",
@@ -45,9 +53,7 @@ const defaultInvoice: InvoiceData = {
   clientAddress: "",
   clientVat: "",
   clientEmail: "",
-  invoiceNumber: `INV-${new Date().getFullYear()}-${String(
-    Math.floor(Math.random() * 9000) + 1000
-  )}`,
+  invoiceNumber: "", // ← séquence DB, pas de random
   invoiceDate: new Date().toISOString().split("T")[0],
   dueDate: "30",
   lineItems: [{ description: "", quantity: 1, unitPrice: 0, vatRate: 21 }],
@@ -56,15 +62,20 @@ const defaultInvoice: InvoiceData = {
   iban: "",
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Composant
+// ─────────────────────────────────────────────────────────────────────────────
+
 const InvoiceGenerator = () => {
   const [invoice, setInvoice] = useState<InvoiceData>(defaultInvoice);
   const [selectedClientId, setSelectedClientId] = useState<string>("");
   const [selectedBusinessProfile, setSelectedBusinessProfile] =
     useState<BusinessProfile | null>(null);
   const [saved, setSaved] = useState(false);
+  const [numberLoading, setNumberLoading] = useState(true);
 
   const navigate = useNavigate();
-  const { createInvoice, loading } = useInvoices();
+  const { createInvoice, getNextInvoiceNumber, loading } = useInvoices();
   const { clients } = useClients();
   const { defaultProfile } = useBusinessProfiles();
 
@@ -72,6 +83,27 @@ const InvoiceGenerator = () => {
     setInvoice((prev) => ({ ...prev, ...updates }));
   }, []);
 
+  // --- DÉBUT SECTION : numéro séquentiel depuis la DB au montage ---
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setNumberLoading(true);
+      try {
+        const number = await getNextInvoiceNumber();
+        if (!cancelled) updateInvoice({ invoiceNumber: number });
+      } catch (err) {
+        console.error("[InvoiceGenerator] getNextInvoiceNumber:", err);
+        toast.error("Impossible de générer le numéro de facture. Rechargez la page.");
+        // Pas de fallback aléatoire — l'utilisateur doit recharger
+      } finally {
+        if (!cancelled) setNumberLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // --- FIN SECTION : numéro séquentiel ---
+
+  // Pré-remplit les champs entreprise depuis le profil sélectionné
   useEffect(() => {
     const profile = selectedBusinessProfile ?? defaultProfile;
     if (!profile) return;
@@ -88,7 +120,6 @@ const InvoiceGenerator = () => {
   const handleClientChange = (clientId: string) => {
     setSelectedClientId(clientId);
     const client = clients.find((c) => c.id === clientId);
-
     if (client) {
       updateInvoice({
         clientName: client.name,
@@ -107,8 +138,15 @@ const InvoiceGenerator = () => {
       return;
     }
 
-    if (!selectedBusinessProfile) {
+    const profile = selectedBusinessProfile ?? defaultProfile;
+
+    if (!profile) {
       toast.error("Veuillez créer un profil entreprise par défaut dans Paramètres");
+      return;
+    }
+
+    if (numberLoading || !invoice.invoiceNumber.trim()) {
+      toast.error("Numéro de facture en cours de génération, patientez.");
       return;
     }
 
@@ -125,19 +163,30 @@ const InvoiceGenerator = () => {
       return;
     }
 
-    if (!invoice.invoiceNumber.trim()) {
-      toast.error("Le numéro de facture est requis");
-      return;
-    }
-
     const dueDays = parseInt(invoice.dueDate, 10);
     const due_date = !isNaN(dueDays)
       ? addDaysToDate(invoice.invoiceDate, dueDays)
       : null;
 
+    // --- DÉBUT SECTION : snapshot émetteur immuable ---
+    // Capture l'état du profil AU MOMENT de la sauvegarde.
+    // Obligation légale BE/FR — ne jamais modifier après émission.
+    const issuer_snapshot = {
+      issuer_company_name: profile.company_name ?? "",
+      issuer_vat_number: profile.vat_number ?? null,
+      issuer_street: profile.street ?? null,
+      issuer_zip_code: profile.zip_code ?? null,
+      issuer_city: profile.city ?? null,
+      issuer_country_code: profile.country_code ?? null,
+      issuer_email: profile.email ?? null,
+      issuer_iban: profile.iban ?? null,
+      issuer_logo_path: profile.logo_path ?? null,
+    };
+    // --- FIN SECTION : snapshot émetteur immuable ---
+
     const result = await createInvoice({
       client_id: selectedClientId,
-      business_profile_id: selectedBusinessProfile.id,
+      business_profile_id: profile.id,
       invoice_number: invoice.invoiceNumber,
       issue_date: invoice.invoiceDate,
       due_date,
@@ -148,6 +197,7 @@ const InvoiceGenerator = () => {
         unit_price: item.unitPrice,
         vat_rate: item.vatRate,
       })),
+      issuer_snapshot,
     });
 
     if (result) {
@@ -166,7 +216,6 @@ const InvoiceGenerator = () => {
               <div className="w-72">
                 <ClientSelect value={selectedClientId} onChange={handleClientChange} />
               </div>
-
               <div className="w-72">
                 <BusinessProfileSelect
                   value={selectedBusinessProfile?.id ?? null}
@@ -177,11 +226,17 @@ const InvoiceGenerator = () => {
 
             <Button
               onClick={handleSaveDraft}
-              disabled={loading || !selectedClientId || saved}
+              disabled={loading || numberLoading || !selectedClientId || saved}
               className="gap-2 shrink-0"
             >
               <Save className="h-4 w-4" />
-              {loading ? "Enregistrement..." : saved ? "Enregistré ✓" : "Enregistrer en brouillon"}
+              {loading
+                ? "Enregistrement..."
+                : numberLoading
+                ? "Génération du numéro..."
+                : saved
+                ? "Enregistré ✓"
+                : "Enregistrer en brouillon"}
             </Button>
           </div>
 
