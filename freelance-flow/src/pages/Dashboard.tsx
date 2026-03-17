@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "react-router-dom";
+import { toast } from "sonner";
 import { Plus, Search, DollarSign, Clock, CheckCircle, AlertTriangle, Download } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useInvoices, InvoiceWithClient, InvoiceStatus } from "@/hooks/useInvoices";
@@ -454,34 +455,50 @@ const Dashboard = () => {
                             <Button
                               variant="ghost"
                               size="icon"
+                              
+                              // --- DÉBUT SECTION : bouton Download Dashboard (remplace le onClick existant) ---
                               onClick={(e) => {
                                 e.stopPropagation();
-                               
                                 generateInvoicePdf(
-                                    {
-                                      invoice_number: inv.invoice_number,
-                                      status: inv.status,
-                                      issue_date: inv.issue_date,
-                                      due_date: inv.due_date,
-                                      subtotal: inv.subtotal,
-                                      vat_amount: inv.vat_amount,
-                                      total: inv.total,
-                                      notes: inv.notes,
-                                      items: inv.invoice_items,
-                                    },
-                                    inv.business_profiles!,
-                                    {
-                                      name: inv.clients?.name ?? "",
-                                      company: inv.clients?.company ?? null,
-                                      email: inv.clients?.email ?? null,
-                                      street: inv.clients?.street ?? null,
-                                      zip_code: inv.clients?.zip_code ?? null,
-                                      city: inv.clients?.city ?? null,
-                                      country_code: inv.clients?.country_code ?? null,
-                                      vat_number: inv.clients?.vat_number ?? null,
-                                    }
-                                );
+                                  {
+                                    invoice_number: inv.invoice_number,
+                                    status: inv.status,
+                                    issue_date: inv.issue_date,
+                                    due_date: inv.due_date,
+                                    subtotal: inv.subtotal,
+                                    vat_amount: inv.vat_amount,
+                                    total: inv.total,
+                                    notes: inv.notes,
+                                    items: inv.invoice_items ?? [],
+                                  },
+                                  // ✅ Snapshot immuable — jamais inv.business_profiles (profil live)
+                                  {
+                                    company_name: inv.issuer_company_name ?? "",
+                                    vat_number: inv.issuer_vat_number ?? null,
+                                    street: inv.issuer_street ?? null,
+                                    zip_code: inv.issuer_zip_code ?? null,
+                                    city: inv.issuer_city ?? null,
+                                    country_code: inv.issuer_country_code ?? "BE",
+                                    email: inv.issuer_email ?? null,
+                                    iban: inv.issuer_iban ?? null,
+                                  },
+                                  {
+                                    name: inv.clients?.name ?? "",
+                                    company: inv.clients?.company ?? null,
+                                    email: inv.clients?.email ?? null,
+                                    street: inv.clients?.street ?? null,
+                                    zip_code: inv.clients?.zip_code ?? null,
+                                    city: inv.clients?.city ?? null,
+                                    country_code: inv.clients?.country_code ?? null,
+                                    vat_number: inv.clients?.vat_number ?? null,
+                                  }
+                                ).catch((err) => {
+                                  console.error("[Dashboard] PDF generation failed:", err);
+                                  toast.error("Erreur lors de la génération du PDF.");
+                                });
                               }}
+                              // --- FIN SECTION : bouton Download Dashboard ---
+
                             >
                               <Download className="h-4 w-4" />
                             </Button>
