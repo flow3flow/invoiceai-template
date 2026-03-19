@@ -17,8 +17,8 @@ import ForgotPassword from "./pages/ForgotPassword";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import CheckEmail from "./pages/CheckEmail";
-// Ajout de l'import de la page Clients
 import ClientsPage from "./pages/Clients";
+import PricingPage from "@/pages/PricingPage";
 
 const queryClient = new QueryClient();
 
@@ -33,6 +33,7 @@ const App = () => (
             <AuthProvider>
               <Routes>
                 <Route path="/" element={<Index />} />
+                <Route path="/pricing" element={<PricingPage />} />
                 <Route
                   path="/generator"
                   element={
@@ -49,7 +50,6 @@ const App = () => (
                     </ProtectedRoute>
                   }
                 />
-                {/* Ajout de la route Clients protégée */}
                 <Route
                   path="/clients"
                   element={

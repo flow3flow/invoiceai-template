@@ -1,10 +1,12 @@
 import { Navbar } from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
+import { useCheckout } from "@/hooks/useCheckout";
+import { usePlan } from "@/hooks/usePlan";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Zap, FileText, Mail, Check, ArrowRight, Star } from "lucide-react";
+import { Zap, FileText, Mail, Check, ArrowRight, Star, Crown, Loader2 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 const fadeUp = {
@@ -18,6 +20,8 @@ const fadeUp = {
 
 const Index = () => {
   const { t } = useLanguage();
+  const { startCheckout, loading } = useCheckout();
+  const { plan: currentPlan } = usePlan();
 
   const features = [
     { icon: Zap, title: t("features.instant.title"), description: t("features.instant.desc") },
@@ -27,22 +31,28 @@ const Index = () => {
 
   const plans = [
     {
-      name: t("pricing.starter"), price: "0", period: t("pricing.forever"),
-      description: t("pricing.starter.desc"),
-      features: [t("pricing.f.3inv"), t("pricing.f.pdf"), t("pricing.f.1client"), t("pricing.f.templates")],
-      cta: t("pricing.starter.cta"), popular: false,
+      id: "free" as const,
+      name: "Free", price: "0", period: "/mois",
+      features: ["3 factures/mois", "Export PDF", "1 profil client"],
+      cta: "Commencer gratuitement", popular: false,
     },
     {
-      name: t("pricing.pro"), price: "9", period: t("pricing.perMonth"),
-      description: t("pricing.pro.desc"),
-      features: [t("pricing.f.unlimited"), t("pricing.f.pdfEmail"), t("pricing.f.unlimitedClients"), t("pricing.f.branding"), t("pricing.f.reminders")],
-      cta: t("pricing.pro.cta"), popular: true,
+      id: "starter" as const,
+      name: "Starter", price: "9", period: "/mois",
+      features: ["20 factures/mois", "PDF + email", "Peppol/UBL inclus"],
+      cta: "Choisir Starter", popular: false,
     },
     {
-      name: t("pricing.business"), price: "19", period: t("pricing.perMonth"),
-      description: t("pricing.business.desc"),
-      features: [t("pricing.f.everything"), t("pricing.f.multiClient"), t("pricing.f.autoReminders"), t("pricing.f.analytics"), t("pricing.f.support")],
-      cta: t("pricing.business.cta"), popular: false,
+      id: "pro" as const,
+      name: "Pro", price: "19", period: "/mois",
+      features: ["Factures illimitées", "Tout Starter inclus", "Multi-entreprises (3 max)"],
+      cta: "Choisir Pro", popular: true,
+    },
+    {
+      id: "business" as const,
+      name: "Business", price: "39", period: "/mois",
+      features: ["Factures illimitées", "Tout Pro inclus", "Multi-entreprises illimité", "Support prioritaire"],
+      cta: "Choisir Business", popular: false,
     },
   ];
 
@@ -133,37 +143,63 @@ const Index = () => {
             <h2 className="font-display text-3xl font-bold md:text-5xl">{t("pricing.title")}</h2>
             <p className="mt-4 text-lg text-muted-foreground">{t("pricing.subtitle")}</p>
           </motion.div>
-          <div className="grid gap-8 md:grid-cols-3 max-w-5xl mx-auto">
-            {plans.map((plan, i) => (
-              <motion.div key={plan.name} initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeUp} custom={i + 1}>
-                <Card className={`h-full relative transition-all ${plan.popular ? "border-primary shadow-glow scale-105" : "glass border-border/50"}`}>
-                  {plan.popular && (
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                      <Badge className="gradient-primary text-primary-foreground border-0 px-4">{t("pricing.popular")}</Badge>
-                    </div>
-                  )}
-                  <CardContent className="p-8">
-                    <h3 className="font-display text-xl font-semibold">{plan.name}</h3>
-                    <p className="text-sm text-muted-foreground mt-1">{plan.description}</p>
-                    <div className="mt-6 mb-6">
-                      <span className="font-display text-5xl font-bold">{plan.price}€</span>
-                      <span className="text-muted-foreground ml-1">{plan.period}</span>
-                    </div>
-                    <ul className="space-y-3 mb-8">
-                      {plan.features.map((f) => (
-                        <li key={f} className="flex items-center gap-2 text-sm">
-                          <Check className="h-4 w-4 text-primary shrink-0" />
-                          {f}
-                        </li>
-                      ))}
-                    </ul>
-                    <Button variant={plan.popular ? "hero" : "outline"} className="w-full" asChild>
-                      <Link to="/signup">{plan.cta}</Link>
-                    </Button>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
+          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4 max-w-6xl mx-auto">
+            {plans.map((plan, i) => {
+              const isCurrent = currentPlan === plan.id;
+              const isPaid = plan.id !== "free";
+              return (
+                <motion.div key={plan.id} initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeUp} custom={i + 1}>
+                  <Card className={`h-full relative transition-all ${plan.popular ? "border-primary shadow-glow scale-105" : "glass border-border/50"} ${isCurrent ? "ring-2 ring-primary" : ""}`}>
+                    {plan.popular && (
+                      <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                        <Badge className="gradient-primary text-primary-foreground border-0 px-4">
+                          <Crown className="w-3 h-3 mr-1" />
+                          Le plus populaire
+                        </Badge>
+                      </div>
+                    )}
+                    {isCurrent && (
+                      <div className="absolute top-3 right-3">
+                        <Badge variant="secondary" className="gap-1">
+                          <Check className="w-3 h-3" />
+                          Actuel
+                        </Badge>
+                      </div>
+                    )}
+                    <CardContent className="p-8">
+                      <h3 className="font-display text-xl font-semibold">{plan.name}</h3>
+                      <div className="mt-6 mb-6">
+                        <span className="font-display text-5xl font-bold">{plan.price}€</span>
+                        <span className="text-muted-foreground ml-1">{plan.period}</span>
+                      </div>
+                      <ul className="space-y-3 mb-8">
+                        {plan.features.map((f) => (
+                          <li key={f} className="flex items-center gap-2 text-sm">
+                            <Check className="h-4 w-4 text-primary shrink-0" />
+                            {f}
+                          </li>
+                        ))}
+                      </ul>
+                      {isPaid ? (
+                        <Button
+                          variant={plan.popular ? "hero" : "default"}
+                          className="w-full"
+                          disabled={isCurrent || loading === plan.id}
+                          onClick={() => startCheckout(plan.id)}
+                        >
+                          {loading === plan.id && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                          {plan.cta}
+                        </Button>
+                      ) : (
+                        <Button variant="outline" className="w-full" disabled={isCurrent}>
+                          {plan.cta}
+                        </Button>
+                      )}
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              );
+            })}
           </div>
         </div>
       </section>
