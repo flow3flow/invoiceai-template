@@ -1,31 +1,69 @@
-import { useState } from "react";
+// src/components/invoice/InvoiceForm.tsx
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Plus, Trash2, User, Building2, FileText, CreditCard } from "lucide-react";
 import type { InvoiceData, LineItem } from "@/types/invoice";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { VatScenarioSelector } from "@/components/invoice/VatScenarioSelector";
+import { legalMentionsResolver, type VatScenario, type CountryCode } from "@/lib/vatScenario";
 
 interface InvoiceFormProps {
   invoice: InvoiceData;
   onUpdate: (updates: Partial<InvoiceData>) => void;
-  clientLocked?: boolean; // ← ajout
+  clientLocked?: boolean;
 }
 
 export function InvoiceForm({ invoice, onUpdate, clientLocked = false }: InvoiceFormProps) {
   const { t } = useLanguage();
 
-  const updateLineItem = (index: number, field: keyof LineItem, value: string | number) => {
+  // ── Détermine si le scénario actuel impose une autoliquidation (TVA = 0 forcé)
+  const isReverseCharge = (() => {
+    if (!invoice.vatScenario) return false;
+    try {
+      return legalMentionsResolver(invoice.vatScenario, 0).vatDueByCustomer;
+    } catch {
+      return false;
+    }
+  })();
+
+  // ── Pays de l'émetteur — fallback BE si non renseigné
+  const sellerCountry: CountryCode =
+    (invoice.companyCountryCode as CountryCode) ?? "BE";
+
+  // ── Calcul montant HT total pour l'aperçu mention légale
+  const totalHT = invoice.lineItems.reduce(
+    (sum, item) => sum + item.quantity * item.unitPrice,
+    0,
+  );
+
+  const updateLineItem = (
+    index: number,
+    field: keyof LineItem,
+    value: string | number,
+  ) => {
     const newItems = [...invoice.lineItems];
     newItems[index] = { ...newItems[index], [field]: value };
     onUpdate({ lineItems: newItems });
   };
 
   const addLineItem = () => {
-    onUpdate({ lineItems: [...invoice.lineItems, { description: "", quantity: 1, unitPrice: 0, vatRate: 21 }] });
+    onUpdate({
+      lineItems: [
+        ...invoice.lineItems,
+        { description: "", quantity: 1, unitPrice: 0, vatRate: isReverseCharge ? 0 : 21 },
+      ],
+    });
   };
 
   const removeLineItem = (index: number) => {
@@ -42,8 +80,24 @@ export function InvoiceForm({ invoice, onUpdate, clientLocked = false }: Invoice
     }
   };
 
+  // ── Changement de scénario TVA — force TVA=0 sur toutes les lignes si autoliquidation
+  const handleVatScenarioChange = (scenario: VatScenario) => {
+    let vatDueByCustomer = false;
+    try {
+      vatDueByCustomer = legalMentionsResolver(scenario, 0).vatDueByCustomer;
+    } catch { /* ignore */ }
+
+    const updatedItems = vatDueByCustomer
+      ? invoice.lineItems.map((item) => ({ ...item, vatRate: 0 }))
+      : invoice.lineItems;
+
+    onUpdate({ vatScenario: scenario, lineItems: updatedItems });
+  };
+
   return (
     <div className="space-y-6">
+
+      {/* ─── Infos émetteur ───────────────────────────────────────────────── */}
       <Card className="glass border-border/50">
         <CardHeader className="pb-4">
           <CardTitle className="flex items-center gap-2 font-display text-lg">
@@ -55,31 +109,53 @@ export function InvoiceForm({ invoice, onUpdate, clientLocked = false }: Invoice
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>{t("form.companyName")}</Label>
-              <Input placeholder="Your Company" value={invoice.companyName} onChange={(e) => onUpdate({ companyName: e.target.value })} />
+              <Input
+                placeholder="Your Company"
+                value={invoice.companyName}
+                onChange={(e) => onUpdate({ companyName: e.target.value })}
+              />
             </div>
             <div className="space-y-2">
               <Label>{t("form.vatNumber")}</Label>
-              <Input placeholder="BE0123456789" value={invoice.companyVat} onChange={(e) => onUpdate({ companyVat: e.target.value })} />
+              <Input
+                placeholder="BE0123456789"
+                value={invoice.companyVat}
+                onChange={(e) => onUpdate({ companyVat: e.target.value })}
+              />
             </div>
           </div>
           <div className="space-y-2">
             <Label>{t("form.address")}</Label>
-            <Input placeholder="Street, City, Country" value={invoice.companyAddress} onChange={(e) => onUpdate({ companyAddress: e.target.value })} />
+            <Input
+              placeholder="Street, City, Country"
+              value={invoice.companyAddress}
+              onChange={(e) => onUpdate({ companyAddress: e.target.value })}
+            />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>{t("form.email")}</Label>
-              <Input type="email" placeholder="you@company.com" value={invoice.companyEmail} onChange={(e) => onUpdate({ companyEmail: e.target.value })} />
+              <Input
+                type="email"
+                placeholder="you@company.com"
+                value={invoice.companyEmail}
+                onChange={(e) => onUpdate({ companyEmail: e.target.value })}
+              />
             </div>
             <div className="space-y-2">
               <Label>{t("form.logo")}</Label>
-              <Input type="file" accept="image/*" onChange={handleLogoUpload} className="cursor-pointer" />
+              <Input
+                type="file"
+                accept="image/*"
+                onChange={handleLogoUpload}
+                className="cursor-pointer"
+              />
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* ─── Section client — verrouillée si clientLocked ─────────────────── */}
+      {/* ─── Infos client — verrouillées si clientLocked ─────────────────── */}
       <Card className="glass border-border/50">
         <CardHeader className="pb-4">
           <CardTitle className="flex items-center gap-2 font-display text-lg">
@@ -135,6 +211,7 @@ export function InvoiceForm({ invoice, onUpdate, clientLocked = false }: Invoice
         </CardContent>
       </Card>
 
+      {/* ─── Détails facture ──────────────────────────────────────────────── */}
       <Card className="glass border-border/50">
         <CardHeader className="pb-4">
           <CardTitle className="flex items-center gap-2 font-display text-lg">
@@ -146,16 +223,28 @@ export function InvoiceForm({ invoice, onUpdate, clientLocked = false }: Invoice
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-2">
               <Label>{t("form.invoiceNumber")}</Label>
-              <Input value={invoice.invoiceNumber} onChange={(e) => onUpdate({ invoiceNumber: e.target.value })} />
+              <Input
+                value={invoice.invoiceNumber}
+                onChange={(e) => onUpdate({ invoiceNumber: e.target.value })}
+              />
             </div>
             <div className="space-y-2">
               <Label>{t("form.date")}</Label>
-              <Input type="date" value={invoice.invoiceDate} onChange={(e) => onUpdate({ invoiceDate: e.target.value })} />
+              <Input
+                type="date"
+                value={invoice.invoiceDate}
+                onChange={(e) => onUpdate({ invoiceDate: e.target.value })}
+              />
             </div>
             <div className="space-y-2">
               <Label>{t("form.paymentTerms")}</Label>
-              <Select value={invoice.dueDate} onValueChange={(v) => onUpdate({ dueDate: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Select
+                value={invoice.dueDate}
+                onValueChange={(v) => onUpdate({ dueDate: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="15">15 {t("form.days")}</SelectItem>
                   <SelectItem value="30">30 {t("form.days")}</SelectItem>
@@ -165,34 +254,86 @@ export function InvoiceForm({ invoice, onUpdate, clientLocked = false }: Invoice
             </div>
           </div>
 
+          {/* --- DÉBUT SECTION — Sélecteur régime TVA --- */}
+          <div className="pt-2">
+            <VatScenarioSelector
+              value={invoice.vatScenario ?? null}
+              onChange={handleVatScenarioChange}
+              sellerCountry={sellerCountry}
+              amountHT={totalHT}
+            />
+          </div>
+          {/* --- FIN SECTION --- */}
+
+          {/* ─── Lignes de facturation ──────────────────────────────────── */}
           <div className="space-y-3 mt-4">
             <Label className="text-base font-semibold">{t("form.lineItems")}</Label>
             {invoice.lineItems.map((item, index) => (
-              <div key={index} className="grid gap-3 sm:grid-cols-[1fr_80px_100px_100px_40px] items-end rounded-lg bg-secondary/30 p-3">
+              <div
+                key={index}
+                className="grid gap-3 sm:grid-cols-[1fr_80px_100px_100px_40px] items-end rounded-lg bg-secondary/30 p-3"
+              >
                 <div className="space-y-1">
                   <Label className="text-xs">{t("form.description")}</Label>
-                  <Input placeholder={t("form.description")} value={item.description} onChange={(e) => updateLineItem(index, "description", e.target.value)} />
+                  <Input
+                    placeholder={t("form.description")}
+                    value={item.description}
+                    onChange={(e) => updateLineItem(index, "description", e.target.value)}
+                  />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">{t("form.qty")}</Label>
-                  <Input type="number" min={1} value={item.quantity} onChange={(e) => updateLineItem(index, "quantity", Number(e.target.value))} />
+                  <Input
+                    type="number"
+                    min={1}
+                    value={item.quantity}
+                    onChange={(e) => updateLineItem(index, "quantity", Number(e.target.value))}
+                  />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">{t("form.unitPrice")}</Label>
-                  <Input type="number" min={0} step={0.01} value={item.unitPrice} onChange={(e) => updateLineItem(index, "unitPrice", Number(e.target.value))} />
+                  <Input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={item.unitPrice}
+                    onChange={(e) => updateLineItem(index, "unitPrice", Number(e.target.value))}
+                  />
                 </div>
+
+                {/* --- DÉBUT SECTION — Colonne TVA ligne --- */}
                 <div className="space-y-1">
                   <Label className="text-xs">{t("form.vat")}</Label>
-                  <Select value={String(item.vatRate)} onValueChange={(v) => updateLineItem(index, "vatRate", Number(v))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="0">0%</SelectItem>
-                      <SelectItem value="6">6%</SelectItem>
-                      <SelectItem value="21">21%</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  {isReverseCharge ? (
+                    // Autoliquidation : TVA forcée à 0, non modifiable
+                    <div className="flex h-9 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
+                      0% — auto
+                    </div>
+                  ) : (
+                    <Select
+                      value={String(item.vatRate)}
+                      onValueChange={(v) => updateLineItem(index, "vatRate", Number(v))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">0%</SelectItem>
+                        <SelectItem value="6">6%</SelectItem>
+                        <SelectItem value="12">12%</SelectItem>
+                        <SelectItem value="21">21%</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
-                <Button variant="ghost" size="icon" onClick={() => removeLineItem(index)} className="text-destructive hover:text-destructive">
+                {/* --- FIN SECTION --- */}
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => removeLineItem(index)}
+                  className="text-destructive hover:text-destructive"
+                >
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
@@ -204,6 +345,7 @@ export function InvoiceForm({ invoice, onUpdate, clientLocked = false }: Invoice
         </CardContent>
       </Card>
 
+      {/* ─── Paiement & notes ─────────────────────────────────────────────── */}
       <Card className="glass border-border/50">
         <CardHeader className="pb-4">
           <CardTitle className="flex items-center gap-2 font-display text-lg">
@@ -214,11 +356,20 @@ export function InvoiceForm({ invoice, onUpdate, clientLocked = false }: Invoice
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label>{t("form.iban")}</Label>
-            <Input placeholder="BE68 5390 0754 7034" value={invoice.iban} onChange={(e) => onUpdate({ iban: e.target.value })} />
+            <Input
+              placeholder="BE68 5390 0754 7034"
+              value={invoice.iban}
+              onChange={(e) => onUpdate({ iban: e.target.value })}
+            />
           </div>
           <div className="space-y-2">
             <Label>{t("form.notes")}</Label>
-            <Textarea placeholder="..." value={invoice.notes} onChange={(e) => onUpdate({ notes: e.target.value })} rows={3} />
+            <Textarea
+              placeholder="..."
+              value={invoice.notes}
+              onChange={(e) => onUpdate({ notes: e.target.value })}
+              rows={3}
+            />
           </div>
         </CardContent>
       </Card>

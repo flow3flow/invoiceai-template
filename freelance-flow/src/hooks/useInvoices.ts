@@ -4,12 +4,15 @@ import { useAuth } from "@/contexts/AuthContext";
 import { computeTotals } from "@/lib/invoiceCalculations";
 import { toast } from "sonner";
 import type { PostgrestError } from "@supabase/supabase-js";
+import type { VatScenario } from "@/lib/vatScenario";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue" | "cancelled";
+export type DocumentType = "invoice" | "credit_note" | "quote";
+export type IssuerVatScheme = "normal" | "franchise" | "micro_fr" | "exempt_art44";
 
 export interface InvoiceItemInput {
   description: string;
@@ -41,7 +44,20 @@ export interface CreateInvoiceInput {
   notes?: string | null;
   items: InvoiceItemInput[];
   issuer_snapshot: IssuerSnapshot;
+  vat_scenario?: VatScenario | null;
+  issuer_vat_scheme?: IssuerVatScheme;
+  service_date?: string | null;
+  document_type?: DocumentType;
+  linked_invoice_id?: string | null;
+  linked_invoice_number?: string | null;
 }
+
+// --- DÉBUT SECTION : input note de crédit ---
+export interface CreateCreditNoteInput {
+  originalInvoice: InvoiceWithClient;
+  reason: string;
+}
+// --- FIN SECTION : input note de crédit ---
 
 export interface Invoice {
   id: string;
@@ -52,6 +68,7 @@ export interface Invoice {
   status: InvoiceStatus;
   issue_date: string;
   due_date: string | null;
+  service_date: string | null;
   subtotal: number;
   vat_amount: number;
   total: number;
@@ -68,6 +85,11 @@ export interface Invoice {
   issuer_email: string | null;
   issuer_iban: string | null;
   issuer_logo_path: string | null;
+  vat_scenario: VatScenario | null;
+  issuer_vat_scheme: IssuerVatScheme;
+  document_type: DocumentType;
+  linked_invoice_id: string | null;
+  linked_invoice_number: string | null;
 }
 
 export interface InvoiceWithClient extends Invoice {
@@ -81,8 +103,6 @@ export interface InvoiceWithClient extends Invoice {
     country_code?: string | null;
     vat_number?: string | null;
   } | null;
-  // ⚠️ business_profiles : affichage uniquement.
-  // PDF → toujours utiliser issuer_* (snapshot immuable).
   business_profiles: {
     company_name: string;
     vat_number: string | null;
@@ -109,7 +129,7 @@ export const useInvoices = () => {
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
 
-  // ─── getInvoices ────────────────────────────────────────────────────────────
+  // ─── getInvoices ──────────────────────────────────────────────────────────
 
   const getInvoices = async (): Promise<InvoiceWithClient[]> => {
     if (!user) return [];
@@ -146,44 +166,29 @@ export const useInvoices = () => {
   };
 
   // --- DÉBUT SECTION : getNextInvoiceNumber ---
-  // Appelle la fonction PostgreSQL atomique — séquence sans trou garantie.
-  // Ne jamais générer le numéro côté client (Math.random, Date.now, etc.).
   const getNextInvoiceNumber = async (): Promise<string> => {
     if (!user) throw new Error("Utilisateur non authentifié");
-
     const year = new Date().getFullYear();
-
     const { data, error } = await supabase.rpc("generate_invoice_number", {
       p_user_id: user.id,
       p_year: year,
     });
-
     if (error) {
       const pgErr = error as PostgrestError;
       console.error("[useInvoices] getNextInvoiceNumber:", pgErr.message);
       throw new Error("Impossible de générer le numéro de facture");
     }
-
     return data as string;
   };
   // --- FIN SECTION : getNextInvoiceNumber ---
 
-  // ─── createInvoice ──────────────────────────────────────────────────────────
+  // ─── createInvoice ────────────────────────────────────────────────────────
 
   const createInvoice = async (input: CreateInvoiceInput): Promise<Invoice | null> => {
-    if (!user) {
-      toast.error("Utilisateur non authentifié");
-      return null;
-    }
-
-    if (!input.items.length) {
-      toast.error("Ajoutez au moins une ligne");
-      return null;
-    }
-
+    if (!user) { toast.error("Utilisateur non authentifié"); return null; }
+    if (!input.items.length) { toast.error("Ajoutez au moins une ligne"); return null; }
     if (!input.issuer_snapshot.issuer_company_name) {
-      toast.error("Profil entreprise incomplet : nom manquant");
-      return null;
+      toast.error("Profil entreprise incomplet : nom manquant"); return null;
     }
 
     setLoading(true);
@@ -191,53 +196,47 @@ export const useInvoices = () => {
 
     try {
       const totals = computeTotals(
-        input.items.map((i) => ({
-          quantity: i.quantity,
-          unitPrice: i.unit_price,
-          vatRate: i.vat_rate,
-        }))
+        input.items.map((i) => ({ quantity: i.quantity, unitPrice: i.unit_price, vatRate: i.vat_rate })),
       );
 
-      // --- DÉBUT SECTION : INSERT avec snapshot immuable ---
       const { data: invoice, error: invoiceError } = await supabase
         .from("invoices")
-        .insert([
-          {
-            user_id: user.id,
-            client_id: input.client_id,
-            business_profile_id: input.business_profile_id,
-            invoice_number: input.invoice_number,
-            status: "draft",
-            issue_date: input.issue_date,
-            due_date: input.due_date ?? null,
-            subtotal: totals.subtotal,
-            vat_amount: totals.vat_amount,
-            total: totals.total,
-            notes: input.notes ?? null,
-            pdf_path: null,
-            // Snapshot figé à la création — jamais mis à jour après émission
-            ...input.issuer_snapshot,
-          },
-        ])
+        .insert([{
+          user_id:               user.id,
+          client_id:             input.client_id,
+          business_profile_id:   input.business_profile_id,
+          invoice_number:        input.invoice_number,
+          status:                "draft",
+          issue_date:            input.issue_date,
+          due_date:              input.due_date ?? null,
+          service_date:          input.service_date ?? null,
+          subtotal:              totals.subtotal,
+          vat_amount:            totals.vat_amount,
+          total:                 totals.total,
+          notes:                 input.notes ?? null,
+          pdf_path:              null,
+          vat_scenario:          input.vat_scenario ?? null,
+          issuer_vat_scheme:     input.issuer_vat_scheme ?? "normal",
+          document_type:         input.document_type ?? "invoice",
+          linked_invoice_id:     input.linked_invoice_id ?? null,
+          linked_invoice_number: input.linked_invoice_number ?? null,
+          ...input.issuer_snapshot,
+        }])
         .select()
         .single();
-      // --- FIN SECTION : INSERT avec snapshot immuable ---
 
       if (invoiceError) throw invoiceError;
-
       invoiceId = invoice.id;
 
       const { error: itemsError } = await supabase
         .from("invoice_items")
-        .insert(
-          input.items.map((item) => ({
-            invoice_id: invoice.id,
-            description: item.description,
-            quantity: item.quantity,
-            unit_price: item.unit_price,
-            vat_rate: item.vat_rate,
-          }))
-        );
+        .insert(input.items.map((item) => ({
+          invoice_id:  invoice.id,
+          description: item.description,
+          quantity:    item.quantity,
+          unit_price:  item.unit_price,
+          vat_rate:    item.vat_rate,
+        })));
 
       if (itemsError) throw itemsError;
 
@@ -245,26 +244,179 @@ export const useInvoices = () => {
       return invoice as Invoice;
 
     } catch (err: unknown) {
-      // Rollback : supprime la facture orpheline si INSERT items a échoué
-      if (invoiceId) {
-        await supabase.from("invoices").delete().eq("id", invoiceId);
-      }
-
+      if (invoiceId) await supabase.from("invoices").delete().eq("id", invoiceId);
       const pgErr = err as PostgrestError;
-      if (pgErr.code === "23505") {
-        toast.error("Ce numéro de facture existe déjà");
-      } else if (pgErr.code === "23503") {
-        toast.error("Client ou profil introuvable");
-      } else {
-        toast.error("Erreur lors de la création de la facture");
-        console.error("[useInvoices] createInvoice:", pgErr.message ?? err);
-      }
-
+      if (pgErr.code === "23505") toast.error("Ce numéro de facture existe déjà");
+      else if (pgErr.code === "23503") toast.error("Client ou profil introuvable");
+      else { toast.error("Erreur lors de la création de la facture"); console.error("[useInvoices] createInvoice:", pgErr.message ?? err); }
       return null;
     } finally {
       setLoading(false);
     }
   };
 
-  return { createInvoice, getInvoices, getNextInvoiceNumber, loading };
+  // --- DÉBUT SECTION : updateInvoiceStatus ---
+  // Transitions autorisées :
+  //   draft    → sent, overdue
+  //   sent     → paid, overdue
+  //   overdue  → sent, paid
+  // Transitions bloquées :
+  //   paid     → (immuable — utiliser note de crédit)
+  //   cancelled → (immuable)
+  //   *        → credit_note (géré par createCreditNote)
+
+  const ALLOWED_TRANSITIONS: Record<InvoiceStatus, InvoiceStatus[]> = {
+    draft:     ["sent", "overdue"],
+    sent:      ["paid", "overdue"],
+    overdue:   ["sent", "paid"],
+    paid:      [],
+    cancelled: [],
+  };
+
+  const updateInvoiceStatus = async (
+    invoiceId: string,
+    currentStatus: InvoiceStatus,
+    newStatus: InvoiceStatus,
+  ): Promise<boolean> => {
+    if (!user) { toast.error("Utilisateur non authentifié"); return false; }
+
+    const allowed = ALLOWED_TRANSITIONS[currentStatus] ?? [];
+    if (!allowed.includes(newStatus)) {
+      toast.error(`Transition ${currentStatus} → ${newStatus} non autorisée`);
+      return false;
+    }
+
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from("invoices")
+        .update({ status: newStatus })
+        .eq("id", invoiceId)
+        .eq("user_id", user.id); // RLS double-check
+
+      if (error) throw error;
+
+      const labels: Record<InvoiceStatus, string> = {
+        draft:     "Brouillon",
+        sent:      "Envoyée",
+        paid:      "Payée",
+        overdue:   "En retard",
+        cancelled: "Annulée",
+      };
+      toast.success(`Facture marquée comme "${labels[newStatus]}"`);
+      return true;
+
+    } catch (err: unknown) {
+      const pgErr = err as PostgrestError;
+      toast.error("Erreur lors de la mise à jour du statut");
+      console.error("[useInvoices] updateInvoiceStatus:", pgErr.message ?? err);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+  // --- FIN SECTION : updateInvoiceStatus ---
+
+  // --- DÉBUT SECTION : createCreditNote ---
+  const createCreditNote = async (input: CreateCreditNoteInput): Promise<Invoice | null> => {
+    if (!user) { toast.error("Utilisateur non authentifié"); return null; }
+
+    const { originalInvoice, reason } = input;
+
+    if (!["sent", "paid"].includes(originalInvoice.status)) {
+      toast.error("Seules les factures envoyées ou payées peuvent faire l'objet d'une note de crédit");
+      return null;
+    }
+
+    if (!originalInvoice.invoice_items?.length) {
+      toast.error("Lignes de la facture introuvables — rechargez la page");
+      return null;
+    }
+
+    setLoading(true);
+    let creditNoteId: string | null = null;
+
+    try {
+      const rawNumber = await getNextInvoiceNumber();
+      const cnNumber = rawNumber.replace(/^INV-/, "NC-");
+
+      const { data: creditNote, error: cnError } = await supabase
+        .from("invoices")
+        .insert([{
+          user_id:               user.id,
+          client_id:             originalInvoice.client_id,
+          business_profile_id:   originalInvoice.business_profile_id,
+          invoice_number:        cnNumber,
+          status:                "draft",
+          document_type:         "credit_note",
+          issue_date:            new Date().toISOString().split("T")[0],
+          due_date:              null,
+          service_date:          null,
+          subtotal:              -Math.abs(originalInvoice.subtotal),
+          vat_amount:            -Math.abs(originalInvoice.vat_amount),
+          total:                 -Math.abs(originalInvoice.total),
+          notes:                 reason,
+          pdf_path:              null,
+          vat_scenario:          originalInvoice.vat_scenario,
+          issuer_vat_scheme:     originalInvoice.issuer_vat_scheme,
+          linked_invoice_id:     originalInvoice.id,
+          linked_invoice_number: originalInvoice.invoice_number,
+          issuer_company_name:   originalInvoice.issuer_company_name,
+          issuer_vat_number:     originalInvoice.issuer_vat_number,
+          issuer_street:         originalInvoice.issuer_street,
+          issuer_zip_code:       originalInvoice.issuer_zip_code,
+          issuer_city:           originalInvoice.issuer_city,
+          issuer_country_code:   originalInvoice.issuer_country_code,
+          issuer_email:          originalInvoice.issuer_email,
+          issuer_iban:           originalInvoice.issuer_iban,
+          issuer_logo_path:      originalInvoice.issuer_logo_path,
+        }])
+        .select()
+        .single();
+
+      if (cnError) throw cnError;
+      creditNoteId = creditNote.id;
+
+      const { error: itemsError } = await supabase
+        .from("invoice_items")
+        .insert(originalInvoice.invoice_items.map((item) => ({
+          invoice_id:  creditNote.id,
+          description: item.description,
+          quantity:    -Math.abs(item.quantity),
+          unit_price:  item.unit_price,
+          vat_rate:    item.vat_rate,
+        })));
+
+      if (itemsError) throw itemsError;
+
+      const { error: cancelError } = await supabase
+        .from("invoices")
+        .update({ status: "cancelled" })
+        .eq("id", originalInvoice.id);
+
+      if (cancelError) throw cancelError;
+
+      toast.success(`Note de crédit ${cnNumber} créée — facture ${originalInvoice.invoice_number} annulée`);
+      return creditNote as Invoice;
+
+    } catch (err: unknown) {
+      if (creditNoteId) await supabase.from("invoices").delete().eq("id", creditNoteId);
+      const pgErr = err as PostgrestError;
+      toast.error("Erreur lors de la création de la note de crédit");
+      console.error("[useInvoices] createCreditNote:", pgErr.message ?? err);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+  // --- FIN SECTION : createCreditNote ---
+
+  return {
+    createInvoice,
+    createCreditNote,
+    updateInvoiceStatus,
+    getInvoices,
+    getNextInvoiceNumber,
+    loading,
+  };
 };

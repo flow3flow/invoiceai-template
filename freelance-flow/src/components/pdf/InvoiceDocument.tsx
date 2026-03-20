@@ -5,6 +5,12 @@ import {
   View,
   StyleSheet,
 } from "@react-pdf/renderer";
+import {
+  qualifyVatScenario,
+  legalMentionsResolver,
+  type VatScenario,
+  type CountryCode,
+} from "@/lib/vatScenario";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -44,11 +50,21 @@ export interface PdfInvoice {
   status: string;
   issue_date: string;
   due_date: string | null;
+  // Date de prestation/livraison — obligatoire légalement si différente de issue_date
+  service_date?: string | null;
   subtotal: number;
   vat_amount: number;
   total: number;
   notes: string | null;
   items: PdfInvoiceItem[];
+  // Scénario TVA — alimente le resolver de mentions légales
+  vat_scenario?: VatScenario | null;
+  // Schéma TVA de l'émetteur snapshottté à la création
+  issuer_vat_scheme?: "normal" | "franchise" | "micro_fr" | "exempt_art44" | null;
+  // Type de document — détermine le badge et le comportement d'affichage
+  document_type?: "invoice" | "credit_note" | "quote";
+  // Référence facture d'origine (note de crédit uniquement)
+  linked_invoice_number?: string | null;
 }
 
 export interface InvoiceDocumentProps {
@@ -70,7 +86,11 @@ const C = {
   gray50: "#F9FAFB",
   accent: "#6C63FF",
   accentMid: "#EEF0FF",
+  accentRed: "#FEE2E2",
+  accentRedText: "#DC2626",
   green: "#16A34A",
+  amber: "#D97706",
+  amberMid: "#FEF3C7",
   white: "#FFFFFF",
 } as const;
 
@@ -112,6 +132,8 @@ const s = StyleSheet.create({
     color: C.gray600,
     lineHeight: 1.5,
   },
+
+  // ── Badges document
   invoiceBadge: {
     backgroundColor: C.accentMid,
     borderRadius: 6,
@@ -125,6 +147,19 @@ const s = StyleSheet.create({
     color: C.accent,
     letterSpacing: 0.5,
   },
+  creditNoteBadge: {
+    backgroundColor: C.accentRed,
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    alignSelf: "flex-start",
+  },
+  creditNoteBadgeText: {
+    fontSize: 11,
+    fontFamily: "Helvetica-Bold",
+    color: C.accentRedText,
+    letterSpacing: 0.5,
+  },
 
   divider: {
     height: 1,
@@ -134,6 +169,13 @@ const s = StyleSheet.create({
   accentDivider: {
     height: 2,
     backgroundColor: C.accent,
+    marginBottom: 28,
+    width: 48,
+    borderRadius: 2,
+  },
+  accentDividerRed: {
+    height: 2,
+    backgroundColor: C.accentRedText,
     marginBottom: 28,
     width: 48,
     borderRadius: 2,
@@ -248,9 +290,58 @@ const s = StyleSheet.create({
     fontFamily: "Helvetica-Bold",
     color: C.accent,
   },
+  totalValueRed: {
+    fontSize: 12,
+    fontFamily: "Helvetica-Bold",
+    color: C.accentRedText,
+  },
+
+  // ── Mention légale TVA — obligatoire selon scénario
+  legalMentionBlock: {
+    marginTop: 20,
+    borderLeftWidth: 3,
+    borderLeftColor: C.accent,
+    paddingLeft: 10,
+    paddingVertical: 4,
+  },
+  legalMentionBlockWarning: {
+    marginTop: 20,
+    borderLeftWidth: 3,
+    borderLeftColor: C.amber,
+    paddingLeft: 10,
+    paddingVertical: 4,
+    backgroundColor: C.amberMid,
+    borderRadius: 4,
+  },
+  legalMentionText: {
+    fontSize: 8.5,
+    color: C.gray600,
+    lineHeight: 1.5,
+  },
+  legalMentionRef: {
+    fontSize: 7.5,
+    color: C.gray400,
+    marginTop: 2,
+  },
+
+  // ── Référence facture d'origine (note de crédit)
+  linkedInvoiceBlock: {
+    marginTop: 12,
+    flexDirection: "row",
+    gap: 6,
+  },
+  linkedInvoiceLabel: {
+    fontSize: 8.5,
+    color: C.gray600,
+    fontFamily: "Helvetica-Bold",
+  },
+  linkedInvoiceValue: {
+    fontSize: 8.5,
+    color: C.gray900,
+  },
 
   notesSection: {
-    marginTop: 32,
+    marginTop: 24,
     backgroundColor: C.gray50,
     borderRadius: 6,
     padding: 14,
@@ -323,7 +414,7 @@ const buildAddress = (
   street: string | null,
   zip: string | null,
   city: string | null,
-  country: string | null
+  country: string | null,
 ): string =>
   [street, [zip, city].filter(Boolean).join(" "), country]
     .filter(Boolean)
@@ -338,24 +429,41 @@ export const InvoiceDocument = ({
   issuer,
   client,
 }: InvoiceDocumentProps) => {
+  const isCreditNote = invoice.document_type === "credit_note";
+
+  // ── Résolution du scénario TVA et des mentions légales
+  // Priorité : vat_scenario explicite snapshottté > qualification automatique
+  const resolvedScenario = invoice.vat_scenario
+    ? invoice.vat_scenario
+    : qualifyVatScenario({
+        sellerCountry: issuer.country_code as CountryCode,
+        sellerVatScheme: invoice.issuer_vat_scheme ?? "normal",
+        buyerCountry: client.country_code ?? issuer.country_code,
+        buyerIsVatLiable: !!client.vat_number,
+        supplyType: "services",
+      });
+
+  const vatResult = legalMentionsResolver(resolvedScenario, invoice.subtotal);
+
+  // ── Adresses
   const issuerAddress = buildAddress(
     issuer.street,
     issuer.zip_code,
     issuer.city,
-    issuer.country_code
+    issuer.country_code,
   );
-
   const clientLabel = client.company || client.name;
   const clientAddress = buildAddress(
     client.street,
     client.zip_code,
     client.city,
-    client.country_code
+    client.country_code,
   );
 
   return (
     <Document>
       <Page size="A4" style={s.page}>
+
         {/* ── Header ────────────────────────────────────────────── */}
         <View style={s.header}>
           <View style={s.companyBlock}>
@@ -371,17 +479,33 @@ export const InvoiceDocument = ({
             ) : null}
           </View>
 
-          <View style={s.invoiceBadge}>
-            <Text style={s.invoiceBadgeText}>FACTURE</Text>
-          </View>
+          {isCreditNote ? (
+            <View style={s.creditNoteBadge}>
+              <Text style={s.creditNoteBadgeText}>NOTE DE CRÉDIT</Text>
+            </View>
+          ) : (
+            <View style={s.invoiceBadge}>
+              <Text style={s.invoiceBadgeText}>FACTURE</Text>
+            </View>
+          )}
         </View>
 
-        <View style={s.accentDivider} />
+        <View style={isCreditNote ? s.accentDividerRed : s.accentDivider} />
+
+        {/* ── Référence facture d'origine (note de crédit uniquement) */}
+        {isCreditNote && invoice.linked_invoice_number ? (
+          <View style={s.linkedInvoiceBlock}>
+            <Text style={s.linkedInvoiceLabel}>Réf. facture annulée :</Text>
+            <Text style={s.linkedInvoiceValue}>{invoice.linked_invoice_number}</Text>
+          </View>
+        ) : null}
 
         {/* ── Métadonnées ───────────────────────────────────────── */}
         <View style={s.metaRow}>
           <View style={s.metaBlock}>
-            <Text style={s.metaLabel}>N° Facture</Text>
+            <Text style={s.metaLabel}>
+              {isCreditNote ? "N° Note de crédit" : "N° Facture"}
+            </Text>
             <Text style={s.metaValueBold}>{invoice.invoice_number}</Text>
           </View>
 
@@ -390,12 +514,23 @@ export const InvoiceDocument = ({
             <Text style={s.metaValue}>{fmtDate(invoice.issue_date)}</Text>
           </View>
 
-          <View style={s.metaBlock}>
-            <Text style={s.metaLabel}>Date d'échéance</Text>
-            <Text style={s.metaValue}>
-              {invoice.due_date ? fmtDate(invoice.due_date) : "À réception"}
-            </Text>
-          </View>
+          {/* Date de prestation — obligatoire légalement si différente de issue_date */}
+          {invoice.service_date &&
+          invoice.service_date !== invoice.issue_date ? (
+            <View style={s.metaBlock}>
+              <Text style={s.metaLabel}>Date de prestation</Text>
+              <Text style={s.metaValue}>{fmtDate(invoice.service_date)}</Text>
+            </View>
+          ) : null}
+
+          {!isCreditNote ? (
+            <View style={s.metaBlock}>
+              <Text style={s.metaLabel}>Date d'échéance</Text>
+              <Text style={s.metaValue}>
+                {invoice.due_date ? fmtDate(invoice.due_date) : "À réception"}
+              </Text>
+            </View>
+          ) : null}
 
           <View style={[s.metaBlock, { flex: 2 }]}>
             <Text style={s.metaLabel}>Facturé à</Text>
@@ -427,7 +562,6 @@ export const InvoiceDocument = ({
         {invoice.items.map((item, idx) => {
           const lineTotal = item.quantity * item.unit_price;
           const isLast = idx === invoice.items.length - 1;
-
           return (
             <View
               key={idx}
@@ -450,21 +584,67 @@ export const InvoiceDocument = ({
               <Text style={s.totalsLabel}>Sous-total HT</Text>
               <Text style={s.totalsValue}>{fmt(invoice.subtotal)}</Text>
             </View>
-            <View style={s.totalsRow}>
-              <Text style={s.totalsLabel}>TVA</Text>
-              <Text style={s.totalsValue}>{fmt(invoice.vat_amount)}</Text>
-            </View>
+
+            {/* Si autoliquidation : TVA = 0 et on l'explique */}
+            {vatResult.vatDueByCustomer ? (
+              <View style={s.totalsRow}>
+                <Text style={s.totalsLabel}>TVA</Text>
+                <Text style={s.totalsValue}>0,00 € (autoliquidation)</Text>
+              </View>
+            ) : (
+              <View style={s.totalsRow}>
+                <Text style={s.totalsLabel}>TVA</Text>
+                <Text style={s.totalsValue}>{fmt(invoice.vat_amount)}</Text>
+              </View>
+            )}
+
             <View style={s.totalsDivider} />
             <View style={s.totalsRow}>
-              <Text style={s.totalLabel}>Total TTC</Text>
-              <Text style={s.totalValue}>{fmt(invoice.total)}</Text>
+              <Text style={s.totalLabel}>
+                {isCreditNote ? "Total à rembourser" : "Total TTC"}
+              </Text>
+              <Text style={isCreditNote ? s.totalValueRed : s.totalValue}>
+                {fmt(invoice.total)}
+              </Text>
             </View>
           </View>
         </View>
 
+        {/* ── Mention légale TVA — OBLIGATOIRE selon scénario ───── */}
+        {/* Base légale : AR n°1 art. 53 §§3-4 (BE) | CGI art. 289 + BOFiP (FR) */}
+        {vatResult.legalMention ? (
+          <View style={s.legalMentionBlock}>
+            <Text style={s.legalMentionText}>{vatResult.legalMention}</Text>
+            {vatResult.legalRef ? (
+              <Text style={s.legalMentionRef}>{vatResult.legalRef}</Text>
+            ) : null}
+          </View>
+        ) : null}
+
+        {/* ── Mention note de crédit BE — AR n°1 art. 54 ──────────── */}
+        {isCreditNote && issuer.country_code === "BE" ? (
+          <View style={s.legalMentionBlock}>
+            <Text style={s.legalMentionText}>
+              TVA à reverser à l&apos;État dans la mesure où elle a été initialement déduite
+            </Text>
+            <Text style={s.legalMentionRef}>AR n°1, art. 54</Text>
+          </View>
+        ) : null}
+
+        {/* ── Mention note de crédit FR — CGI art. 289 I-5 ──────────── */}
+        {isCreditNote && issuer.country_code === "FR" && invoice.linked_invoice_number ? (
+          <View style={s.legalMentionBlock}>
+            <Text style={s.legalMentionText}>
+              Document annulant et remplaçant la facture n° {invoice.linked_invoice_number}
+              {invoice.linked_invoice_number ? "" : ""}
+            </Text>
+            <Text style={s.legalMentionRef}>CGI art. 289 I-5 | BOFiP TVA-DECLA-30-20-20</Text>
+          </View>
+        ) : null}
+
         {/* ── IBAN ──────────────────────────────────────────────── */}
         {issuer.iban ? (
-          <View style={[s.notesSection, { marginTop: 24 }]}>
+          <View style={s.notesSection}>
             <Text style={s.notesLabel}>Coordonnées bancaires</Text>
             <Text style={s.notesText}>IBAN : {issuer.iban}</Text>
           </View>
@@ -486,6 +666,7 @@ export const InvoiceDocument = ({
           </Text>
           <Text style={s.footerText}>{invoice.invoice_number}</Text>
         </View>
+
       </Page>
     </Document>
   );

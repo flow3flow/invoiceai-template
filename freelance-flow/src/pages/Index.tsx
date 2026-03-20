@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Navbar } from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
 import { useCheckout } from "@/hooks/useCheckout";
@@ -22,6 +23,7 @@ const Index = () => {
   const { t } = useLanguage();
   const { startCheckout, loading } = useCheckout();
   const { plan: currentPlan } = usePlan();
+  const [isYearly, setIsYearly] = useState(false);
 
   const features = [
     { icon: Zap, title: t("features.instant.title"), description: t("features.instant.desc") },
@@ -32,25 +34,28 @@ const Index = () => {
   const plans = [
     {
       id: "free" as const,
-      name: "Free", price: "0", period: "/mois",
+      name: "Free", monthlyPrice: 0,
       features: ["3 factures/mois", "Export PDF", "1 profil client"],
       cta: "Commencer gratuitement", popular: false,
     },
     {
       id: "starter" as const,
-      name: "Starter", price: "9", period: "/mois",
+      name: "Starter", monthlyPrice: 9,
+      yearlyMonthly: 7, yearlyTotal: 86,
       features: ["20 factures/mois", "PDF + email", "Peppol/UBL inclus"],
       cta: "Choisir Starter", popular: false,
     },
     {
       id: "pro" as const,
-      name: "Pro", price: "19", period: "/mois",
+      name: "Pro", monthlyPrice: 19,
+      yearlyMonthly: 15, yearlyTotal: 182,
       features: ["Factures illimitées", "Tout Starter inclus", "Multi-entreprises (3 max)"],
       cta: "Choisir Pro", popular: true,
     },
     {
       id: "business" as const,
-      name: "Business", price: "39", period: "/mois",
+      name: "Business", monthlyPrice: 39,
+      yearlyMonthly: 31, yearlyTotal: 374,
       features: ["Factures illimitées", "Tout Pro inclus", "Multi-entreprises illimité", "Support prioritaire"],
       cta: "Choisir Business", popular: false,
     },
@@ -143,13 +148,50 @@ const Index = () => {
             <h2 className="font-display text-3xl font-bold md:text-5xl">{t("pricing.title")}</h2>
             <p className="mt-4 text-lg text-muted-foreground">{t("pricing.subtitle")}</p>
           </motion.div>
+
+          {/* Billing toggle */}
+          <div className="flex items-center justify-center gap-3 mb-12">
+            <span className={`text-sm font-medium transition-colors duration-300 ${!isYearly ? "text-foreground" : "text-muted-foreground"}`}>
+              Mensuel
+            </span>
+            <button
+              onClick={() => setIsYearly(!isYearly)}
+              className={`relative inline-flex h-8 w-14 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${isYearly ? "bg-primary" : "bg-input"}`}
+              role="switch"
+              aria-checked={isYearly}
+            >
+              <motion.span
+                className="pointer-events-none block h-6 w-6 rounded-full bg-background shadow-lg"
+                animate={{ x: isYearly ? 24 : 2 }}
+                transition={{ type: "spring", stiffness: 500, damping: 30 }}
+              />
+            </button>
+            <span className={`text-sm font-medium transition-colors duration-300 ${isYearly ? "text-foreground" : "text-muted-foreground"}`}>
+              Annuel
+            </span>
+            {isYearly && (
+              <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.2 }}>
+                <Badge className="bg-primary/15 text-primary border-primary/30 text-xs">
+                  2 mois offerts
+                </Badge>
+              </motion.div>
+            )}
+          </div>
+
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4 max-w-6xl mx-auto">
             {plans.map((plan, i) => {
               const isCurrent = currentPlan === plan.id;
               const isPaid = plan.id !== "free";
+              const displayPrice = isYearly && plan.yearlyMonthly != null ? plan.yearlyMonthly : plan.monthlyPrice;
               return (
                 <motion.div key={plan.id} initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeUp} custom={i + 1}>
-                  <Card className={`h-full relative transition-all ${plan.popular ? "border-primary shadow-glow scale-105" : "glass border-border/50"} ${isCurrent ? "ring-2 ring-primary" : ""}`}>
+                  <Card
+                    className={`h-full relative transition-all duration-300 hover:scale-[1.02] hover:shadow-lg hover:shadow-primary/10 hover:border-primary/40 ${
+                      plan.popular
+                        ? "border-primary shadow-glow scale-105 bg-gradient-to-b from-primary/5 to-transparent"
+                        : "glass border-border/50"
+                    } ${isCurrent ? "ring-2 ring-primary" : ""}`}
+                  >
                     {plan.popular && (
                       <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                         <Badge className="gradient-primary text-primary-foreground border-0 px-4">
@@ -168,10 +210,29 @@ const Index = () => {
                     )}
                     <CardContent className="p-8">
                       <h3 className="font-display text-xl font-semibold">{plan.name}</h3>
-                      <div className="mt-6 mb-6">
-                        <span className="font-display text-5xl font-bold">{plan.price}€</span>
-                        <span className="text-muted-foreground ml-1">{plan.period}</span>
+                      <div className="mt-6 mb-2">
+                        <motion.span
+                          key={`${plan.id}-${isYearly}`}
+                          className="font-display text-5xl font-bold"
+                          initial={{ opacity: 0, y: -10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.3 }}
+                        >
+                          {displayPrice}€
+                        </motion.span>
+                        <span className="text-muted-foreground ml-1">/mois</span>
                       </div>
+                      {isYearly && plan.yearlyTotal != null && (
+                        <motion.p
+                          className="text-xs text-muted-foreground mb-4"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{ delay: 0.1 }}
+                        >
+                          Facturé {plan.yearlyTotal}€/an
+                        </motion.p>
+                      )}
+                      {(!isYearly || plan.yearlyTotal == null) && <div className="mb-4" />}
                       <ul className="space-y-3 mb-8">
                         {plan.features.map((f) => (
                           <li key={f} className="flex items-center gap-2 text-sm">
@@ -185,7 +246,11 @@ const Index = () => {
                           variant={plan.popular ? "hero" : "default"}
                           className="w-full"
                           disabled={isCurrent || loading === plan.id}
-                          onClick={() => startCheckout(plan.id)}
+                          onClick={() => {
+                            const period = isYearly ? "yearly" : "monthly";
+                            console.log(`Checkout: ${plan.id} (${period})`);
+                            startCheckout(plan.id as "starter" | "pro" | "business");
+                          }}
                         >
                           {loading === plan.id && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                           {plan.cta}
