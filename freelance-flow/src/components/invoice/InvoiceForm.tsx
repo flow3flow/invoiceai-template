@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2, User, Building2, FileText, CreditCard } from "lucide-react";
-import type { InvoiceData, LineItem } from "@/types/invoice";
+import type { InvoiceData, LineItem, DocumentType } from "@/types/invoice";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { VatScenarioSelector } from "@/components/invoice/VatScenarioSelector";
 import { legalMentionsResolver, type VatScenario, type CountryCode } from "@/lib/vatScenario";
@@ -22,12 +22,18 @@ interface InvoiceFormProps {
   invoice: InvoiceData;
   onUpdate: (updates: Partial<InvoiceData>) => void;
   clientLocked?: boolean;
+  docType?: DocumentType;
 }
 
-export function InvoiceForm({ invoice, onUpdate, clientLocked = false }: InvoiceFormProps) {
+export function InvoiceForm({
+  invoice,
+  onUpdate,
+  clientLocked = false,
+  docType = "invoice",
+}: InvoiceFormProps) {
   const { t } = useLanguage();
 
-  // ── Détermine si le scénario actuel impose une autoliquidation (TVA = 0 forcé)
+  // ── Autoliquidation — TVA = 0 forcé ──────────────────────────────────────
   const isReverseCharge = (() => {
     if (!invoice.vatScenario) return false;
     try {
@@ -37,11 +43,9 @@ export function InvoiceForm({ invoice, onUpdate, clientLocked = false }: Invoice
     }
   })();
 
-  // ── Pays de l'émetteur — fallback BE si non renseigné
   const sellerCountry: CountryCode =
     (invoice.companyCountryCode as CountryCode) ?? "BE";
 
-  // ── Calcul montant HT total pour l'aperçu mention légale
   const totalHT = invoice.lineItems.reduce(
     (sum, item) => sum + item.quantity * item.unitPrice,
     0,
@@ -80,7 +84,6 @@ export function InvoiceForm({ invoice, onUpdate, clientLocked = false }: Invoice
     }
   };
 
-  // ── Changement de scénario TVA — force TVA=0 sur toutes les lignes si autoliquidation
   const handleVatScenarioChange = (scenario: VatScenario) => {
     let vatDueByCustomer = false;
     try {
@@ -92,6 +95,17 @@ export function InvoiceForm({ invoice, onUpdate, clientLocked = false }: Invoice
       : invoice.lineItems;
 
     onUpdate({ vatScenario: scenario, lineItems: updatedItems });
+  };
+
+  // ── Calcul validUntil quand validityDays change ───────────────────────────
+  const handleValidityChange = (days: string) => {
+    const validity = Number(days);
+    const d = new Date(invoice.invoiceDate || new Date());
+    d.setDate(d.getDate() + validity);
+    onUpdate({
+      validityDays: validity,
+      validUntil:   d.toISOString().split("T")[0],
+    });
   };
 
   return (
@@ -155,7 +169,7 @@ export function InvoiceForm({ invoice, onUpdate, clientLocked = false }: Invoice
         </CardContent>
       </Card>
 
-      {/* ─── Infos client — verrouillées si clientLocked ─────────────────── */}
+      {/* ─── Infos client ─────────────────────────────────────────────────── */}
       <Card className="glass border-border/50">
         <CardHeader className="pb-4">
           <CardTitle className="flex items-center gap-2 font-display text-lg">
@@ -211,7 +225,7 @@ export function InvoiceForm({ invoice, onUpdate, clientLocked = false }: Invoice
         </CardContent>
       </Card>
 
-      {/* ─── Détails facture ──────────────────────────────────────────────── */}
+      {/* ─── Détails document ─────────────────────────────────────────────── */}
       <Card className="glass border-border/50">
         <CardHeader className="pb-4">
           <CardTitle className="flex items-center gap-2 font-display text-lg">
@@ -236,34 +250,66 @@ export function InvoiceForm({ invoice, onUpdate, clientLocked = false }: Invoice
                 onChange={(e) => onUpdate({ invoiceDate: e.target.value })}
               />
             </div>
-            <div className="space-y-2">
-              <Label>{t("form.paymentTerms")}</Label>
-              <Select
-                value={invoice.dueDate}
-                onValueChange={(v) => onUpdate({ dueDate: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="15">15 {t("form.days")}</SelectItem>
-                  <SelectItem value="30">30 {t("form.days")}</SelectItem>
-                  <SelectItem value="60">60 {t("form.days")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+
+            {/* --- DÉBUT SECTION : champs conditionnels par docType --- */}
+            {docType === "invoice" && (
+              <div className="space-y-2">
+                <Label>{t("form.paymentTerms")}</Label>
+                <Select
+                  value={invoice.dueDate}
+                  onValueChange={(v) => onUpdate({ dueDate: v })}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="15">15 {t("form.days")}</SelectItem>
+                    <SelectItem value="30">30 {t("form.days")}</SelectItem>
+                    <SelectItem value="60">60 {t("form.days")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {docType === "quote" && (
+              <div className="space-y-2">
+                <Label>Validité</Label>
+                <Select
+                  value={String(invoice.validityDays ?? 30)}
+                  onValueChange={handleValidityChange}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="30">30 jours</SelectItem>
+                    <SelectItem value="60">60 jours</SelectItem>
+                    <SelectItem value="90">90 jours</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {docType === "order" && (
+              <div className="space-y-2">
+                <Label>Référence BC client</Label>
+                <Input
+                  placeholder="ex : PO-2026-001"
+                  value={invoice.clientReference ?? ""}
+                  onChange={(e) => onUpdate({ clientReference: e.target.value })}
+                />
+              </div>
+            )}
+            {/* --- FIN SECTION : champs conditionnels --- */}
           </div>
 
-          {/* --- DÉBUT SECTION — Sélecteur régime TVA --- */}
-          <div className="pt-2">
-            <VatScenarioSelector
-              value={invoice.vatScenario ?? null}
-              onChange={handleVatScenarioChange}
-              sellerCountry={sellerCountry}
-              amountHT={totalHT}
-            />
-          </div>
-          {/* --- FIN SECTION --- */}
+          {/* Régime TVA — seulement sur facture et devis */}
+          {docType !== "order" && (
+            <div className="pt-2">
+              <VatScenarioSelector
+                value={invoice.vatScenario ?? null}
+                onChange={handleVatScenarioChange}
+                sellerCountry={sellerCountry}
+                amountHT={totalHT}
+              />
+            </div>
+          )}
 
           {/* ─── Lignes de facturation ──────────────────────────────────── */}
           <div className="space-y-3 mt-4">
@@ -300,12 +346,9 @@ export function InvoiceForm({ invoice, onUpdate, clientLocked = false }: Invoice
                     onChange={(e) => updateLineItem(index, "unitPrice", Number(e.target.value))}
                   />
                 </div>
-
-                {/* --- DÉBUT SECTION — Colonne TVA ligne --- */}
                 <div className="space-y-1">
                   <Label className="text-xs">{t("form.vat")}</Label>
                   {isReverseCharge ? (
-                    // Autoliquidation : TVA forcée à 0, non modifiable
                     <div className="flex h-9 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
                       0% — auto
                     </div>
@@ -314,9 +357,7 @@ export function InvoiceForm({ invoice, onUpdate, clientLocked = false }: Invoice
                       value={String(item.vatRate)}
                       onValueChange={(v) => updateLineItem(index, "vatRate", Number(v))}
                     >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="0">0%</SelectItem>
                         <SelectItem value="6">6%</SelectItem>
@@ -326,8 +367,6 @@ export function InvoiceForm({ invoice, onUpdate, clientLocked = false }: Invoice
                     </Select>
                   )}
                 </div>
-                {/* --- FIN SECTION --- */}
-
                 <Button
                   variant="ghost"
                   size="icon"
@@ -345,34 +384,60 @@ export function InvoiceForm({ invoice, onUpdate, clientLocked = false }: Invoice
         </CardContent>
       </Card>
 
-      {/* ─── Paiement & notes ─────────────────────────────────────────────── */}
-      <Card className="glass border-border/50">
-        <CardHeader className="pb-4">
-          <CardTitle className="flex items-center gap-2 font-display text-lg">
-            <CreditCard className="h-5 w-5 text-primary" />
-            {t("form.paymentNotes")}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>{t("form.iban")}</Label>
-            <Input
-              placeholder="BE68 5390 0754 7034"
-              value={invoice.iban}
-              onChange={(e) => onUpdate({ iban: e.target.value })}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>{t("form.notes")}</Label>
-            <Textarea
-              placeholder="..."
-              value={invoice.notes}
-              onChange={(e) => onUpdate({ notes: e.target.value })}
-              rows={3}
-            />
-          </div>
-        </CardContent>
-      </Card>
+      {/* ─── Paiement & notes — cachés pour bon de commande ──────────────── */}
+      {docType !== "order" && (
+        <Card className="glass border-border/50">
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 font-display text-lg">
+              <CreditCard className="h-5 w-5 text-primary" />
+              {t("form.paymentNotes")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>{t("form.iban")}</Label>
+              <Input
+                placeholder="BE68 5390 0754 7034"
+                value={invoice.iban}
+                onChange={(e) => onUpdate({ iban: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>{t("form.notes")}</Label>
+              <Textarea
+                placeholder="..."
+                value={invoice.notes}
+                onChange={(e) => onUpdate({ notes: e.target.value })}
+                rows={3}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ─── Notes seules pour bon de commande ───────────────────────────── */}
+      {docType === "order" && (
+        <Card className="glass border-border/50">
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 font-display text-lg">
+              <FileText className="h-5 w-5 text-primary" />
+              {t("form.notes")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              <Label>{t("form.notes")}</Label>
+              <Textarea
+                placeholder="..."
+                value={invoice.notes}
+                onChange={(e) => onUpdate({ notes: e.target.value })}
+                rows={3}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
     </div>
   );
 }

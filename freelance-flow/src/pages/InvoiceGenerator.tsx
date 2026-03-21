@@ -6,13 +6,15 @@ import { InvoicePreview } from "@/components/invoice/InvoicePreview";
 import { ClientSelect } from "@/components/invoice/ClientSelect";
 import { BusinessProfileSelect } from "@/components/invoice/BusinessProfileSelect";
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useInvoices } from "@/hooks/useInvoices";
 import { useClients } from "@/hooks/useClients";
 import { useBusinessProfiles } from "@/hooks/useBusinessProfiles";
 import { generateInvoicePdf } from "@/lib/pdf/generateInvoicePdf";
 import { generateStructuredRef } from "@/lib/structured-ref";
 import { toast } from "sonner";
-import type { InvoiceData } from "@/types/invoice";
+import type { InvoiceData, DocumentType } from "@/types/invoice";
+import { DOC_CONFIG } from "@/types/invoice";
 import type { VatScenario } from "@/lib/vatScenario";
 import type { BusinessProfile } from "@/hooks/useBusinessProfiles";
 import { Save, Download, Loader2 } from "lucide-react";
@@ -44,7 +46,6 @@ function formatBusinessAddress(profile: {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // État initial
-// FIX 1 : vatScenario toujours défini → guard supprimé dans handleSaveDraft
 // ─────────────────────────────────────────────────────────────────────────────
 
 const defaultInvoice: InvoiceData = {
@@ -66,8 +67,12 @@ const defaultInvoice: InvoiceData = {
   notes:              "",
   paymentMethod:      "bank",
   iban:               "",
-  // FIX 1 : jamais null — toujours une valeur par défaut
   vatScenario:        "BE_STANDARD_21" as VatScenario,
+  // Nouveaux champs document type
+  documentType:       "invoice",
+  validityDays:       30,
+  validUntil:         "",
+  clientReference:    "",
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -75,13 +80,14 @@ const defaultInvoice: InvoiceData = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const InvoiceGenerator = () => {
-  const [invoice, setInvoice] = useState<InvoiceData>(defaultInvoice);
+  const [invoice, setInvoice]                   = useState<InvoiceData>(defaultInvoice);
+  const [docType, setDocType]                   = useState<DocumentType>("invoice");
   const [selectedClientId, setSelectedClientId] = useState<string>("");
   const [selectedBusinessProfile, setSelectedBusinessProfile] =
     useState<BusinessProfile | null>(null);
-  const [saved, setSaved]           = useState(false);
+  const [saved, setSaved]             = useState(false);
   const [numberLoading, setNumberLoading] = useState(true);
-  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfLoading, setPdfLoading]   = useState(false);
 
   const navigate = useNavigate();
   const { createInvoice, getNextInvoiceNumber, loading } = useInvoices();
@@ -127,6 +133,23 @@ const InvoiceGenerator = () => {
     });
   }, [selectedBusinessProfile, defaultProfile, updateInvoice]);
 
+  // ── Changement de type de document ───────────────────────────────────────
+  const handleDocTypeChange = (value: string) => {
+    if (!value) return;
+    const newType = value as DocumentType;
+    setDocType(newType);
+
+    const updates: Partial<InvoiceData> = { documentType: newType };
+
+    // Recalcule validUntil si devis
+    if (newType === "quote") {
+      const validity = invoice.validityDays || 30;
+      updates.validUntil = addDaysToDate(invoice.invoiceDate, validity);
+    }
+
+    updateInvoice(updates);
+  };
+
   // ── Sélection client ──────────────────────────────────────────────────────
   const handleClientChange = (clientId: string) => {
     setSelectedClientId(clientId);
@@ -158,8 +181,6 @@ const InvoiceGenerator = () => {
       toast.error("Numéro de facture en cours de génération, patientez.");
       return;
     }
-    // FIX 1 : guard !invoice.vatScenario SUPPRIMÉ
-    // vatScenario a toujours une valeur (defaultInvoice + reset profil)
 
     const invalidItems = invoice.lineItems.filter(
       (item) =>
@@ -178,7 +199,6 @@ const InvoiceGenerator = () => {
       ? addDaysToDate(invoice.invoiceDate, dueDays)
       : null;
 
-    // FIX 3 : référence structurée belge générée ici
     const structured_ref = generateStructuredRef(invoice.invoiceNumber);
 
     const issuer_snapshot = {
@@ -203,7 +223,11 @@ const InvoiceGenerator = () => {
       vat_scenario:        invoice.vatScenario,
       issuer_vat_scheme:   "normal",
       service_date:        invoice.serviceDate ?? null,
-      document_type:       "invoice",
+      // Nouveaux champs document type
+      document_type:       docType,
+      validity_days:       docType === "quote" ? invoice.validityDays : null,
+      valid_until:         docType === "quote" ? invoice.validUntil || null : null,
+      client_reference:    docType === "order" ? invoice.clientReference || null : null,
       structured_ref,
       items: invoice.lineItems.map((item) => ({
         description: item.description,
@@ -220,7 +244,7 @@ const InvoiceGenerator = () => {
     }
   };
 
-  // ── FIX 2 : PDF depuis le générateur avec vatScenario ────────────────────
+  // ── PDF ───────────────────────────────────────────────────────────────────
   const handleDownloadPdf = async () => {
     const profile = selectedBusinessProfile ?? defaultProfile;
     if (!profile) {
@@ -261,10 +285,9 @@ const InvoiceGenerator = () => {
             unit_price:  i.unitPrice,
             vat_rate:    i.vatRate,
           })),
-          // FIX 2 : vatScenario du form state passé au renderer → mention légale ✅
           vat_scenario:          invoice.vatScenario ?? null,
           issuer_vat_scheme:     "normal",
-          document_type:         "invoice",
+          document_type:         docType,
           linked_invoice_number: null,
           structured_ref,
         },
@@ -297,13 +320,36 @@ const InvoiceGenerator = () => {
     }
   };
 
+  const config = DOC_CONFIG[docType];
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
       <div className="pt-20 pb-8">
         <div className="container mx-auto px-4">
+
+          {/* ── Header ──────────────────────────────────────────────────── */}
           <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
             <div className="flex flex-wrap items-end gap-4 flex-1 min-w-0">
+
+              {/* ── Sélecteur type de document ────────────────────────── */}
+              <ToggleGroup
+                type="single"
+                value={docType}
+                onValueChange={handleDocTypeChange}
+                className="border border-border/50 rounded-lg p-1 bg-card"
+              >
+                <ToggleGroupItem value="invoice" className="text-sm px-3 py-1.5 gap-1.5">
+                  🧾 Facture
+                </ToggleGroupItem>
+                <ToggleGroupItem value="quote" className="text-sm px-3 py-1.5 gap-1.5">
+                  📋 Devis
+                </ToggleGroupItem>
+                <ToggleGroupItem value="order" className="text-sm px-3 py-1.5 gap-1.5">
+                  📦 Bon de commande
+                </ToggleGroupItem>
+              </ToggleGroup>
+
               <div className="w-72">
                 <ClientSelect value={selectedClientId} onChange={handleClientChange} />
               </div>
@@ -316,7 +362,6 @@ const InvoiceGenerator = () => {
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              {/* FIX 2 : bouton PDF branché sur handleDownloadPdf */}
               <Button
                 variant="outline"
                 onClick={handleDownloadPdf}
@@ -342,21 +387,24 @@ const InvoiceGenerator = () => {
                   ? "Génération du numéro..."
                   : saved
                   ? "Enregistré ✓"
-                  : "Enregistrer en brouillon"}
+                  : config.saveLabel}
               </Button>
             </div>
           </div>
 
+          {/* ── Grid form / preview ──────────────────────────────────── */}
           <div className="grid gap-8 lg:grid-cols-2">
             <InvoiceForm
               invoice={invoice}
               onUpdate={updateInvoice}
               clientLocked={!!selectedClientId}
+              docType={docType}
             />
             <div className="lg:sticky lg:top-24 lg:self-start">
-              <InvoicePreview invoice={invoice} />
+              <InvoicePreview invoice={invoice} docType={docType} />
             </div>
           </div>
+
         </div>
       </div>
     </div>

@@ -1,8 +1,11 @@
+// src/components/invoice/InvoicePreview.tsx
+
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Mail, Loader2 } from "lucide-react";
-import type { InvoiceData } from "@/types/invoice";
+import type { InvoiceData, DocumentType } from "@/types/invoice";
+import { DOC_CONFIG } from "@/types/invoice";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,14 +17,16 @@ import { supabase } from "@/lib/supabase";
 
 interface InvoicePreviewProps {
   invoice: InvoiceData;
+  docType?: DocumentType;
 }
 
-export function InvoicePreview({ invoice }: InvoicePreviewProps) {
+export function InvoicePreview({ invoice, docType = "invoice" }: InvoicePreviewProps) {
   const { t } = useLanguage();
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailTo, setEmailTo] = useState(invoice.clientEmail ?? "");
 
   const calculations = computeTotals(invoice.lineItems);
+  const config = DOC_CONFIG[docType];
 
   const computedDueDate = (() => {
     if (!invoice.invoiceDate) return null;
@@ -61,45 +66,45 @@ export function InvoicePreview({ invoice }: InvoicePreviewProps) {
     try {
       const blob = await generateInvoicePdfBlob(
         {
-          invoice_number: invoice.invoiceNumber,
-          status: "draft",
-          issue_date: invoice.invoiceDate ?? new Date().toISOString().split("T")[0],
-          due_date: computedDueDate,
-          subtotal: calculations.subtotal,
-          vat_amount: calculations.vat_amount,
-          total: calculations.total,
-          notes: invoice.notes ?? null,
-          items: invoice.lineItems.map((item) => ({
+          invoice_number:        invoice.invoiceNumber,
+          status:                "draft",
+          issue_date:            invoice.invoiceDate ?? new Date().toISOString().split("T")[0],
+          due_date:              computedDueDate,
+          subtotal:              calculations.subtotal,
+          vat_amount:            calculations.vat_amount,
+          total:                 calculations.total,
+          notes:                 invoice.notes ?? null,
+          items:                 invoice.lineItems.map((item) => ({
             description: item.description,
-            quantity: item.quantity,
-            unit_price: item.unitPrice,
-            vat_rate: item.vatRate,
+            quantity:    item.quantity,
+            unit_price:  item.unitPrice,
+            vat_rate:    item.vatRate,
           })),
-          vat_scenario: invoice.vatScenario ?? null,
-          issuer_vat_scheme: "normal",
-          document_type: "invoice",
+          vat_scenario:          invoice.vatScenario ?? null,
+          issuer_vat_scheme:     "normal",
+          document_type:         docType,
           linked_invoice_number: null,
-          structured_ref: null,
+          structured_ref:        null,
         },
         {
           company_name: invoice.companyName,
-          vat_number: invoice.companyVat ?? null,
-          street: invoice.companyAddress ?? null,
-          zip_code: null,
-          city: null,
+          vat_number:   invoice.companyVat ?? null,
+          street:       invoice.companyAddress ?? null,
+          zip_code:     null,
+          city:         null,
           country_code: invoice.companyCountryCode ?? "BE",
-          email: invoice.companyEmail ?? null,
-          iban: invoice.iban ?? null,
+          email:        invoice.companyEmail ?? null,
+          iban:         invoice.iban ?? null,
         },
         {
-          name: invoice.clientName ?? "",
-          company: null,
-          email: invoice.clientEmail ?? null,
-          street: invoice.clientAddress ?? null,
-          zip_code: null,
-          city: null,
+          name:         invoice.clientName ?? "",
+          company:      null,
+          email:        invoice.clientEmail ?? null,
+          street:       invoice.clientAddress ?? null,
+          zip_code:     null,
+          city:         null,
           country_code: null,
-          vat_number: invoice.clientVat ?? null,
+          vat_number:   invoice.clientVat ?? null,
         }
       );
 
@@ -115,10 +120,10 @@ export function InvoicePreview({ invoice }: InvoicePreviewProps) {
 
       const { data, error } = await supabase.functions.invoke("send-invoice-email", {
         body: {
-          to: emailTo,
+          to:            emailTo,
           invoiceNumber: invoice.invoiceNumber,
-          pdfBase64: base64,
-          issuerName: invoice.companyName,
+          pdfBase64:     base64,
+          issuerName:    invoice.companyName,
         },
       });
 
@@ -137,8 +142,7 @@ export function InvoicePreview({ invoice }: InvoicePreviewProps) {
 
   return (
     <div className="space-y-4">
-      {/* Bouton Download supprimé — géré par InvoiceGenerator.tsx */}
-      {/* Bouton Save supprimé — sans utilité ici */}
+      {/* Bouton Download géré par InvoiceGenerator.tsx */}
       <div className="flex gap-3">
         <Dialog>
           <DialogTrigger asChild>
@@ -164,7 +168,7 @@ export function InvoicePreview({ invoice }: InvoicePreviewProps) {
                 <Label>{t("preview.subject")}</Label>
                 <Input
                   readOnly
-                  value={`Facture ${invoice.invoiceNumber} — ${invoice.companyName}`}
+                  value={`${config.title} ${invoice.invoiceNumber} — ${invoice.companyName}`}
                 />
               </div>
               <Button
@@ -186,6 +190,8 @@ export function InvoicePreview({ invoice }: InvoicePreviewProps) {
 
       <Card className="overflow-hidden border-border/50 shadow-glow">
         <div className="bg-white text-gray-900 p-8 min-h-[700px] text-sm">
+
+          {/* ── Header émetteur / titre document ──────────────────────── */}
           <div className="flex justify-between items-start mb-8">
             <div>
               {invoice.companyLogo ? (
@@ -205,19 +211,37 @@ export function InvoicePreview({ invoice }: InvoicePreviewProps) {
               )}
             </div>
             <div className="text-right">
-              <h1 className="font-bold text-2xl text-gray-900 mb-2">{t("preview.invoiceTitle")}</h1>
+              {/* --- DÉBUT SECTION : titre dynamique docType --- */}
+              <h1 className="font-bold text-2xl text-gray-900 mb-2">{config.title}</h1>
+              {/* --- FIN SECTION --- */}
               <p className="text-gray-600 text-xs">
                 <span className="font-medium">{invoice.invoiceNumber}</span>
               </p>
               <p className="text-gray-500 text-xs mt-1">
                 {t("form.date")}: {formatDate(invoice.invoiceDate)}
               </p>
-              <p className="text-gray-500 text-xs">
-                {t("preview.paymentDetails")}: {dueDateDisplay}
-              </p>
+
+              {/* --- DÉBUT SECTION : métadonnées conditionnelles --- */}
+              {docType === "invoice" && (
+                <p className="text-gray-500 text-xs">
+                  {t("preview.paymentDetails")}: {dueDateDisplay}
+                </p>
+              )}
+              {docType === "quote" && invoice.validUntil && (
+                <p className="text-gray-500 text-xs">
+                  Valable jusqu'au : {formatDate(invoice.validUntil)}
+                </p>
+              )}
+              {docType === "order" && invoice.clientReference && (
+                <p className="text-gray-500 text-xs">
+                  Référence : {invoice.clientReference}
+                </p>
+              )}
+              {/* --- FIN SECTION --- */}
             </div>
           </div>
 
+          {/* ── Client ────────────────────────────────────────────────── */}
           <div className="mb-8 bg-gray-50 rounded-lg p-4">
             <p className="text-xs uppercase tracking-wider text-gray-400 mb-2 font-semibold">
               {t("preview.billTo")}
@@ -232,24 +256,15 @@ export function InvoicePreview({ invoice }: InvoicePreviewProps) {
             )}
           </div>
 
+          {/* ── Tableau lignes ────────────────────────────────────────── */}
           <table className="w-full mb-8">
             <thead>
               <tr className="border-b-2 border-gray-200">
-                <th className="text-left py-2 text-xs uppercase tracking-wider text-gray-400 font-semibold">
-                  {t("preview.description")}
-                </th>
-                <th className="text-center py-2 text-xs uppercase tracking-wider text-gray-400 font-semibold">
-                  {t("preview.qty")}
-                </th>
-                <th className="text-right py-2 text-xs uppercase tracking-wider text-gray-400 font-semibold">
-                  {t("preview.price")}
-                </th>
-                <th className="text-right py-2 text-xs uppercase tracking-wider text-gray-400 font-semibold">
-                  {t("preview.vat")}
-                </th>
-                <th className="text-right py-2 text-xs uppercase tracking-wider text-gray-400 font-semibold">
-                  {t("preview.total")}
-                </th>
+                <th className="text-left py-2 text-xs uppercase tracking-wider text-gray-400 font-semibold">{t("preview.description")}</th>
+                <th className="text-center py-2 text-xs uppercase tracking-wider text-gray-400 font-semibold">{t("preview.qty")}</th>
+                <th className="text-right py-2 text-xs uppercase tracking-wider text-gray-400 font-semibold">{t("preview.price")}</th>
+                <th className="text-right py-2 text-xs uppercase tracking-wider text-gray-400 font-semibold">{t("preview.vat")}</th>
+                <th className="text-right py-2 text-xs uppercase tracking-wider text-gray-400 font-semibold">{t("preview.total")}</th>
               </tr>
             </thead>
             <tbody>
@@ -268,6 +283,7 @@ export function InvoicePreview({ invoice }: InvoicePreviewProps) {
             </tbody>
           </table>
 
+          {/* ── Totaux ────────────────────────────────────────────────── */}
           <div className="flex justify-end mb-8">
             <div className="w-64 space-y-2">
               <div className="flex justify-between text-gray-600">
@@ -285,7 +301,8 @@ export function InvoicePreview({ invoice }: InvoicePreviewProps) {
             </div>
           </div>
 
-          {invoice.iban && (
+          {/* --- DÉBUT SECTION : paiement conditionnel --- */}
+          {docType !== "order" && invoice.iban && (
             <div className="bg-gray-50 rounded-lg p-4 mb-6">
               <p className="text-xs uppercase tracking-wider text-gray-400 mb-2 font-semibold">
                 {t("preview.paymentDetails")}
@@ -294,6 +311,16 @@ export function InvoicePreview({ invoice }: InvoicePreviewProps) {
               <p className="text-gray-900 font-medium text-sm">IBAN: {invoice.iban}</p>
             </div>
           )}
+
+          {docType === "order" && invoice.clientReference && (
+            <div className="bg-gray-50 rounded-lg p-4 mb-6">
+              <p className="text-xs uppercase tracking-wider text-gray-400 mb-2 font-semibold">
+                Référence commande
+              </p>
+              <p className="text-gray-900 font-medium text-sm">{invoice.clientReference}</p>
+            </div>
+          )}
+          {/* --- FIN SECTION --- */}
 
           {invoice.notes && (
             <div className="mb-6">

@@ -7,7 +7,8 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-
+import { OnboardingGuard } from "@/components/OnboardingGuard";
+ 
 import Index from "./pages/Index";
 import InvoiceGenerator from "./pages/InvoiceGenerator";
 import Dashboard from "@/pages/Dashboard";
@@ -19,9 +20,10 @@ import NotFound from "./pages/NotFound";
 import CheckEmail from "./pages/CheckEmail";
 import ClientsPage from "./pages/Clients";
 import PricingPage from "@/pages/PricingPage";
-
+import Onboarding from "./pages/Onboarding";
+ 
 const queryClient = new QueryClient();
-
+ 
 const App = () => (
   <ThemeProvider defaultTheme="light">
     <QueryClientProvider client={queryClient}>
@@ -31,47 +33,50 @@ const App = () => (
         <BrowserRouter>
           <LanguageProvider>
             <AuthProvider>
-              <Routes>
-                <Route path="/" element={<Index />} />
-                <Route path="/pricing" element={<PricingPage />} />
-                <Route
-                  path="/generator"
-                  element={
-                    <ProtectedRoute>
-                      <InvoiceGenerator />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/dashboard"
-                  element={
-                    <ProtectedRoute>
-                      <Dashboard />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/clients"
-                  element={
-                    <ProtectedRoute>
-                      <ClientsPage />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route path="/login" element={<Login />} />
-                <Route path="/signup" element={<Signup />} />
-                <Route path="/forgot-password" element={<ForgotPassword />} />
-                <Route path="/check-email" element={<CheckEmail />} />
-                <Route
-                  path="/settings"
-                  element={
-                    <ProtectedRoute>
-                      <Settings />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
+              <OnboardingGuard>
+                <Routes>
+                  <Route path="/" element={<Index />} />
+                  <Route path="/pricing" element={<PricingPage />} />
+                  <Route path="/onboarding" element={<Onboarding />} />
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/signup" element={<Signup />} />
+                  <Route path="/forgot-password" element={<ForgotPassword />} />
+                  <Route path="/check-email" element={<CheckEmail />} />
+                  <Route
+                    path="/generator"
+                    element={
+                      <ProtectedRoute>
+                        <InvoiceGenerator />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/dashboard"
+                    element={
+                      <ProtectedRoute>
+                        <Dashboard />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/clients"
+                    element={
+                      <ProtectedRoute>
+                        <ClientsPage />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/settings"
+                    element={
+                      <ProtectedRoute>
+                        <Settings />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </OnboardingGuard>
             </AuthProvider>
           </LanguageProvider>
         </BrowserRouter>
@@ -79,5 +84,5 @@ const App = () => (
     </QueryClientProvider>
   </ThemeProvider>
 );
-
+ 
 export default App;
