@@ -9,10 +9,13 @@ import { Button } from "@/components/ui/button";
 import { useInvoices } from "@/hooks/useInvoices";
 import { useClients } from "@/hooks/useClients";
 import { useBusinessProfiles } from "@/hooks/useBusinessProfiles";
+import { generateInvoicePdf } from "@/lib/pdf/generateInvoicePdf";
+import { generateStructuredRef } from "@/lib/structured-ref";
 import { toast } from "sonner";
 import type { InvoiceData } from "@/types/invoice";
+import type { VatScenario } from "@/lib/vatScenario";
 import type { BusinessProfile } from "@/hooks/useBusinessProfiles";
-import { Save } from "lucide-react";
+import { Save, Download, Loader2 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -41,28 +44,30 @@ function formatBusinessAddress(profile: {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // État initial
+// FIX 1 : vatScenario toujours défini → guard supprimé dans handleSaveDraft
 // ─────────────────────────────────────────────────────────────────────────────
 
 const defaultInvoice: InvoiceData = {
-  companyName: "",
-  companyAddress: "",
-  companyVat: "",
-  companyEmail: "",
-  companyLogo: null,
-  companyCountryCode: "BE",            // ← défaut freelance belge
-  clientName: "",
-  clientAddress: "",
-  clientVat: "",
-  clientEmail: "",
-  invoiceNumber: "",                   // ← séquence DB, pas de random
-  invoiceDate: new Date().toISOString().split("T")[0],
-  serviceDate: null,                   // ← date de prestation (obligation légale)
-  dueDate: "30",
-  lineItems: [{ description: "", quantity: 1, unitPrice: 0, vatRate: 21 }],
-  notes: "",
-  paymentMethod: "bank",
-  iban: "",
-  vatScenario: "BE_STANDARD_21",       // ← scénario TVA par défaut
+  companyName:        "",
+  companyAddress:     "",
+  companyVat:         "",
+  companyEmail:       "",
+  companyLogo:        null,
+  companyCountryCode: "BE",
+  clientName:         "",
+  clientAddress:      "",
+  clientVat:          "",
+  clientEmail:        "",
+  invoiceNumber:      "",
+  invoiceDate:        new Date().toISOString().split("T")[0],
+  serviceDate:        null,
+  dueDate:            "30",
+  lineItems:          [{ description: "", quantity: 1, unitPrice: 0, vatRate: 21 }],
+  notes:              "",
+  paymentMethod:      "bank",
+  iban:               "",
+  // FIX 1 : jamais null — toujours une valeur par défaut
+  vatScenario:        "BE_STANDARD_21" as VatScenario,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -74,19 +79,20 @@ const InvoiceGenerator = () => {
   const [selectedClientId, setSelectedClientId] = useState<string>("");
   const [selectedBusinessProfile, setSelectedBusinessProfile] =
     useState<BusinessProfile | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved]           = useState(false);
   const [numberLoading, setNumberLoading] = useState(true);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
   const navigate = useNavigate();
   const { createInvoice, getNextInvoiceNumber, loading } = useInvoices();
-  const { clients } = useClients();
+  const { clients }        = useClients();
   const { defaultProfile } = useBusinessProfiles();
 
   const updateInvoice = useCallback((updates: Partial<InvoiceData>) => {
     setInvoice((prev) => ({ ...prev, ...updates }));
   }, []);
 
-  // --- DÉBUT SECTION : numéro séquentiel depuis la DB au montage ---
+  // ── Numéro séquentiel DB ──────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -103,14 +109,11 @@ const InvoiceGenerator = () => {
     })();
     return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  // --- FIN SECTION : numéro séquentiel ---
 
-  // --- DÉBUT SECTION : pré-remplissage profil entreprise ---
-  // Synchronise les champs émetteur ET le pays (nécessaire pour VatScenarioSelector)
+  // ── Pré-remplissage profil entreprise ────────────────────────────────────
   useEffect(() => {
     const profile = selectedBusinessProfile ?? defaultProfile;
     if (!profile) return;
-
     updateInvoice({
       companyName:        profile.company_name ?? "",
       companyAddress:     formatBusinessAddress(profile),
@@ -118,49 +121,45 @@ const InvoiceGenerator = () => {
       companyEmail:       profile.email ?? "",
       iban:               profile.iban ?? "",
       companyCountryCode: profile.country_code ?? "BE",
-      // Reset le scénario TVA au changement de profil pour éviter
-      // un scénario BE sélectionné sur un profil FR et vice-versa
-      vatScenario: profile.country_code === "FR" ? "FR_STANDARD_20" : "BE_STANDARD_21",
+      vatScenario: (profile.country_code === "FR"
+        ? "FR_STANDARD_20"
+        : "BE_STANDARD_21") as VatScenario,
     });
   }, [selectedBusinessProfile, defaultProfile, updateInvoice]);
-  // --- FIN SECTION : pré-remplissage profil entreprise ---
 
+  // ── Sélection client ──────────────────────────────────────────────────────
   const handleClientChange = (clientId: string) => {
     setSelectedClientId(clientId);
     const client = clients.find((c) => c.id === clientId);
     if (client) {
       updateInvoice({
-        clientName: client.name,
+        clientName:    client.name,
         clientAddress: [client.street, client.zip_code, client.city, client.country_code]
           .filter(Boolean)
           .join(", "),
-        clientVat:   client.vat_number ?? "",
-        clientEmail: client.email ?? "",
+        clientVat:     client.vat_number ?? "",
+        clientEmail:   client.email ?? "",
       });
     }
   };
 
+  // ── Sauvegarde brouillon ──────────────────────────────────────────────────
   const handleSaveDraft = async () => {
     if (!selectedClientId) {
       toast.error("Veuillez sélectionner un client");
       return;
     }
-
     const profile = selectedBusinessProfile ?? defaultProfile;
     if (!profile) {
-      toast.error("Veuillez créer un profil entreprise par défaut dans Paramètres");
+      toast.error("Veuillez créer un profil entreprise dans Paramètres");
       return;
     }
-
     if (numberLoading || !invoice.invoiceNumber.trim()) {
       toast.error("Numéro de facture en cours de génération, patientez.");
       return;
     }
-
-    if (!invoice.vatScenario) {
-      toast.error("Veuillez sélectionner un régime TVA");
-      return;
-    }
+    // FIX 1 : guard !invoice.vatScenario SUPPRIMÉ
+    // vatScenario a toujours une valeur (defaultInvoice + reset profil)
 
     const invalidItems = invoice.lineItems.filter(
       (item) =>
@@ -174,26 +173,25 @@ const InvoiceGenerator = () => {
       return;
     }
 
-    const dueDays = parseInt(invoice.dueDate, 10);
+    const dueDays  = parseInt(invoice.dueDate, 10);
     const due_date = !isNaN(dueDays)
       ? addDaysToDate(invoice.invoiceDate, dueDays)
       : null;
 
-    // --- DÉBUT SECTION : snapshot émetteur immuable ---
-    // Capture l'état du profil AU MOMENT de la sauvegarde.
-    // Obligation légale BE/FR — ne jamais modifier après émission.
+    // FIX 3 : référence structurée belge générée ici
+    const structured_ref = generateStructuredRef(invoice.invoiceNumber);
+
     const issuer_snapshot = {
-      issuer_company_name:  profile.company_name ?? "",
-      issuer_vat_number:    profile.vat_number ?? null,
-      issuer_street:        profile.street ?? null,
-      issuer_zip_code:      profile.zip_code ?? null,
-      issuer_city:          profile.city ?? null,
-      issuer_country_code:  profile.country_code ?? null,
-      issuer_email:         profile.email ?? null,
-      issuer_iban:          profile.iban ?? null,
-      issuer_logo_path:     profile.logo_path ?? null,
+      issuer_company_name: profile.company_name ?? "",
+      issuer_vat_number:   profile.vat_number ?? null,
+      issuer_street:       profile.street ?? null,
+      issuer_zip_code:     profile.zip_code ?? null,
+      issuer_city:         profile.city ?? null,
+      issuer_country_code: profile.country_code ?? null,
+      issuer_email:        profile.email ?? null,
+      issuer_iban:         profile.iban ?? null,
+      issuer_logo_path:    profile.logo_path ?? null,
     };
-    // --- FIN SECTION : snapshot émetteur immuable ---
 
     const result = await createInvoice({
       client_id:           selectedClientId,
@@ -202,12 +200,11 @@ const InvoiceGenerator = () => {
       issue_date:          invoice.invoiceDate,
       due_date,
       notes:               invoice.notes || null,
-      // --- DÉBUT SECTION : nouveaux champs TVA ---
       vat_scenario:        invoice.vatScenario,
-      issuer_vat_scheme:   "normal",          // ← à exposer via profil si franchise
+      issuer_vat_scheme:   "normal",
       service_date:        invoice.serviceDate ?? null,
       document_type:       "invoice",
-      // --- FIN SECTION : nouveaux champs TVA ---
+      structured_ref,
       items: invoice.lineItems.map((item) => ({
         description: item.description,
         quantity:    item.quantity,
@@ -220,6 +217,83 @@ const InvoiceGenerator = () => {
     if (result) {
       setSaved(true);
       navigate("/dashboard");
+    }
+  };
+
+  // ── FIX 2 : PDF depuis le générateur avec vatScenario ────────────────────
+  const handleDownloadPdf = async () => {
+    const profile = selectedBusinessProfile ?? defaultProfile;
+    if (!profile) {
+      toast.error("Profil entreprise requis pour générer le PDF");
+      return;
+    }
+    if (!invoice.lineItems.some((i) => i.description.trim())) {
+      toast.error("Ajoutez au moins une ligne de prestation");
+      return;
+    }
+
+    setPdfLoading(true);
+    try {
+      const client = clients.find((c) => c.id === selectedClientId);
+      const structured_ref = invoice.invoiceNumber
+        ? generateStructuredRef(invoice.invoiceNumber)
+        : null;
+
+      const subtotal   = invoice.lineItems.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+      const vat_amount = invoice.lineItems.reduce(
+        (s, i) => s + i.quantity * i.unitPrice * (i.vatRate / 100), 0,
+      );
+      const total = subtotal + vat_amount;
+
+      await generateInvoicePdf(
+        {
+          invoice_number:        invoice.invoiceNumber || "APERÇU",
+          status:                "draft",
+          issue_date:            invoice.invoiceDate,
+          due_date:              addDaysToDate(invoice.invoiceDate, parseInt(invoice.dueDate) || 30),
+          subtotal,
+          vat_amount,
+          total,
+          notes:                 invoice.notes || null,
+          items:                 invoice.lineItems.map((i) => ({
+            description: i.description,
+            quantity:    i.quantity,
+            unit_price:  i.unitPrice,
+            vat_rate:    i.vatRate,
+          })),
+          // FIX 2 : vatScenario du form state passé au renderer → mention légale ✅
+          vat_scenario:          invoice.vatScenario ?? null,
+          issuer_vat_scheme:     "normal",
+          document_type:         "invoice",
+          linked_invoice_number: null,
+          structured_ref,
+        },
+        {
+          company_name: profile.company_name ?? "",
+          vat_number:   profile.vat_number ?? null,
+          street:       profile.street ?? null,
+          zip_code:     profile.zip_code ?? null,
+          city:         profile.city ?? null,
+          country_code: profile.country_code ?? "BE",
+          email:        profile.email ?? null,
+          iban:         profile.iban ?? null,
+        },
+        {
+          name:         client?.name ?? invoice.clientName,
+          company:      client?.company ?? null,
+          email:        client?.email ?? invoice.clientEmail ?? null,
+          street:       client?.street ?? null,
+          zip_code:     client?.zip_code ?? null,
+          city:         client?.city ?? null,
+          country_code: client?.country_code ?? null,
+          vat_number:   client?.vat_number ?? invoice.clientVat ?? null,
+        },
+      );
+    } catch (err) {
+      console.error("[InvoiceGenerator] handleDownloadPdf:", err);
+      toast.error("Erreur lors de la génération du PDF");
+    } finally {
+      setPdfLoading(false);
     }
   };
 
@@ -241,20 +315,36 @@ const InvoiceGenerator = () => {
               </div>
             </div>
 
-            <Button
-              onClick={handleSaveDraft}
-              disabled={loading || numberLoading || !selectedClientId || saved}
-              className="gap-2 shrink-0"
-            >
-              <Save className="h-4 w-4" />
-              {loading
-                ? "Enregistrement..."
-                : numberLoading
-                ? "Génération du numéro..."
-                : saved
-                ? "Enregistré ✓"
-                : "Enregistrer en brouillon"}
-            </Button>
+            <div className="flex items-center gap-2 shrink-0">
+              {/* FIX 2 : bouton PDF branché sur handleDownloadPdf */}
+              <Button
+                variant="outline"
+                onClick={handleDownloadPdf}
+                disabled={pdfLoading || numberLoading}
+                className="gap-2"
+              >
+                {pdfLoading
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <Download className="h-4 w-4" />
+                }
+                Télécharger PDF
+              </Button>
+
+              <Button
+                onClick={handleSaveDraft}
+                disabled={loading || numberLoading || !selectedClientId || saved}
+                className="gap-2"
+              >
+                <Save className="h-4 w-4" />
+                {loading
+                  ? "Enregistrement..."
+                  : numberLoading
+                  ? "Génération du numéro..."
+                  : saved
+                  ? "Enregistré ✓"
+                  : "Enregistrer en brouillon"}
+              </Button>
+            </div>
           </div>
 
           <div className="grid gap-8 lg:grid-cols-2">

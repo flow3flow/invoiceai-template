@@ -257,6 +257,7 @@ const Dashboard = () => {
           issuer_vat_scheme:     inv.issuer_vat_scheme ?? "normal",
           document_type:         inv.document_type ?? "invoice",
           linked_invoice_number: inv.linked_invoice_number ?? null,
+          structured_ref: inv.structured_ref ?? null,
         },
         {
           company_name: inv.issuer_company_name ?? "",

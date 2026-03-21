@@ -50,6 +50,8 @@ export interface CreateInvoiceInput {
   document_type?: DocumentType;
   linked_invoice_id?: string | null;
   linked_invoice_number?: string | null;
+  // --- AJOUT : référence structurée belge +++XXX/XXXX/XXXXX+++ ---
+  structured_ref?: string | null;
 }
 
 // --- DÉBUT SECTION : input note de crédit ---
@@ -76,6 +78,7 @@ export interface Invoice {
   pdf_path: string | null;
   created_at: string;
   updated_at: string;
+  // Snapshot émetteur immuable
   issuer_company_name: string | null;
   issuer_vat_number: string | null;
   issuer_street: string | null;
@@ -85,11 +88,14 @@ export interface Invoice {
   issuer_email: string | null;
   issuer_iban: string | null;
   issuer_logo_path: string | null;
+  // Champs TVA
   vat_scenario: VatScenario | null;
   issuer_vat_scheme: IssuerVatScheme;
   document_type: DocumentType;
   linked_invoice_id: string | null;
   linked_invoice_number: string | null;
+  // --- AJOUT : référence structurée ---
+  structured_ref: string | null;
 }
 
 export interface InvoiceWithClient extends Invoice {
@@ -196,7 +202,11 @@ export const useInvoices = () => {
 
     try {
       const totals = computeTotals(
-        input.items.map((i) => ({ quantity: i.quantity, unitPrice: i.unit_price, vatRate: i.vat_rate })),
+        input.items.map((i) => ({
+          quantity: i.quantity,
+          unitPrice: i.unit_price,
+          vatRate: i.vat_rate,
+        })),
       );
 
       const { data: invoice, error: invoiceError } = await supabase
@@ -220,6 +230,8 @@ export const useInvoices = () => {
           document_type:         input.document_type ?? "invoice",
           linked_invoice_id:     input.linked_invoice_id ?? null,
           linked_invoice_number: input.linked_invoice_number ?? null,
+          // --- AJOUT : référence structurée belge ---
+          structured_ref:        input.structured_ref ?? null,
           ...input.issuer_snapshot,
         }])
         .select()
@@ -248,7 +260,10 @@ export const useInvoices = () => {
       const pgErr = err as PostgrestError;
       if (pgErr.code === "23505") toast.error("Ce numéro de facture existe déjà");
       else if (pgErr.code === "23503") toast.error("Client ou profil introuvable");
-      else { toast.error("Erreur lors de la création de la facture"); console.error("[useInvoices] createInvoice:", pgErr.message ?? err); }
+      else {
+        toast.error("Erreur lors de la création de la facture");
+        console.error("[useInvoices] createInvoice:", pgErr.message ?? err);
+      }
       return null;
     } finally {
       setLoading(false);
@@ -256,15 +271,6 @@ export const useInvoices = () => {
   };
 
   // --- DÉBUT SECTION : updateInvoiceStatus ---
-  // Transitions autorisées :
-  //   draft    → sent, overdue
-  //   sent     → paid, overdue
-  //   overdue  → sent, paid
-  // Transitions bloquées :
-  //   paid     → (immuable — utiliser note de crédit)
-  //   cancelled → (immuable)
-  //   *        → credit_note (géré par createCreditNote)
-
   const ALLOWED_TRANSITIONS: Record<InvoiceStatus, InvoiceStatus[]> = {
     draft:     ["sent", "overdue"],
     sent:      ["paid", "overdue"],
@@ -292,7 +298,7 @@ export const useInvoices = () => {
         .from("invoices")
         .update({ status: newStatus })
         .eq("id", invoiceId)
-        .eq("user_id", user.id); // RLS double-check
+        .eq("user_id", user.id);
 
       if (error) throw error;
 
@@ -361,6 +367,8 @@ export const useInvoices = () => {
           issuer_vat_scheme:     originalInvoice.issuer_vat_scheme,
           linked_invoice_id:     originalInvoice.id,
           linked_invoice_number: originalInvoice.invoice_number,
+          // Référence structurée de la note de crédit
+          structured_ref:        originalInvoice.structured_ref ?? null,
           issuer_company_name:   originalInvoice.issuer_company_name,
           issuer_vat_number:     originalInvoice.issuer_vat_number,
           issuer_street:         originalInvoice.issuer_street,

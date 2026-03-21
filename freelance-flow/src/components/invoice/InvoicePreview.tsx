@@ -1,7 +1,7 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Download, Mail, Save, Loader2 } from "lucide-react";
+import { Mail, Loader2 } from "lucide-react";
 import type { InvoiceData } from "@/types/invoice";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { computeTotals } from "@/lib/invoiceCalculations";
-import { generateInvoicePdf, generateInvoicePdfBlob } from "@/lib/pdf/generateInvoicePdf";
+import { generateInvoicePdfBlob } from "@/lib/pdf/generateInvoicePdf";
 import { supabase } from "@/lib/supabase";
 
 interface InvoicePreviewProps {
@@ -17,7 +17,6 @@ interface InvoicePreviewProps {
 }
 
 export function InvoicePreview({ invoice }: InvoicePreviewProps) {
-  const previewRef = useRef<HTMLDivElement>(null);
   const { t } = useLanguage();
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailTo, setEmailTo] = useState(invoice.clientEmail ?? "");
@@ -43,63 +42,6 @@ export function InvoicePreview({ invoice }: InvoicePreviewProps) {
     return d.toLocaleDateString("fr-BE");
   })();
 
-  // --- DÉBUT SECTION : handleDownload ---
-  const handleDownload = async () => {
-    if (!invoice.invoiceNumber) {
-      toast.error("Numéro de facture manquant.");
-      return;
-    }
-    if (!invoice.companyName) {
-      toast.error("Nom de l'entreprise manquant.");
-      return;
-    }
-    try {
-      await generateInvoicePdf(
-        {
-          invoice_number: invoice.invoiceNumber,
-          status: "draft",
-          issue_date: invoice.invoiceDate ?? new Date().toISOString().split("T")[0],
-          due_date: computedDueDate,
-          subtotal: calculations.subtotal,
-          vat_amount: calculations.vat_amount,
-          total: calculations.total,
-          notes: invoice.notes ?? null,
-          items: invoice.lineItems.map((item) => ({
-            description: item.description,
-            quantity: item.quantity,
-            unit_price: item.unitPrice,
-            vat_rate: item.vatRate,
-          })),
-        },
-        {
-          company_name: invoice.companyName,
-          vat_number: invoice.companyVat ?? null,
-          street: invoice.companyAddress ?? null,
-          zip_code: null,
-          city: null,
-          country_code: "BE",
-          email: invoice.companyEmail ?? null,
-          iban: invoice.iban ?? null,
-        },
-        {
-          name: invoice.clientName ?? "",
-          company: null,
-          email: invoice.clientEmail ?? null,
-          street: invoice.clientAddress ?? null,
-          zip_code: null,
-          city: null,
-          country_code: null,
-          vat_number: invoice.clientVat ?? null,
-        }
-      );
-      toast.success("PDF téléchargé avec succès.");
-    } catch (err) {
-      console.error("[InvoicePreview] handleDownload:", err);
-      toast.error("Erreur lors de la génération du PDF.");
-    }
-  };
-  // --- FIN SECTION : handleDownload ---
-
   // --- DÉBUT SECTION : handleSendEmail ---
   const handleSendEmail = async () => {
     if (!emailTo || !emailTo.includes("@")) {
@@ -117,7 +59,6 @@ export function InvoicePreview({ invoice }: InvoicePreviewProps) {
 
     setEmailLoading(true);
     try {
-      // 1. Générer le PDF en Blob
       const blob = await generateInvoicePdfBlob(
         {
           invoice_number: invoice.invoiceNumber,
@@ -134,6 +75,11 @@ export function InvoicePreview({ invoice }: InvoicePreviewProps) {
             unit_price: item.unitPrice,
             vat_rate: item.vatRate,
           })),
+          vat_scenario: invoice.vatScenario ?? null,
+          issuer_vat_scheme: "normal",
+          document_type: "invoice",
+          linked_invoice_number: null,
+          structured_ref: null,
         },
         {
           company_name: invoice.companyName,
@@ -141,7 +87,7 @@ export function InvoicePreview({ invoice }: InvoicePreviewProps) {
           street: invoice.companyAddress ?? null,
           zip_code: null,
           city: null,
-          country_code: "BE",
+          country_code: invoice.companyCountryCode ?? "BE",
           email: invoice.companyEmail ?? null,
           iban: invoice.iban ?? null,
         },
@@ -157,18 +103,16 @@ export function InvoicePreview({ invoice }: InvoicePreviewProps) {
         }
       );
 
-      // 2. Convertir Blob → base64
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onloadend = () => {
           const result = reader.result as string;
-          resolve(result.split(",")[1]); // retire le préfixe data:application/pdf;base64,
+          resolve(result.split(",")[1]);
         };
         reader.onerror = reject;
         reader.readAsDataURL(blob);
       });
 
-      // 3. Appeler l'Edge Function via le client Supabase
       const { data, error } = await supabase.functions.invoke("send-invoice-email", {
         body: {
           to: emailTo,
@@ -191,17 +135,11 @@ export function InvoicePreview({ invoice }: InvoicePreviewProps) {
   };
   // --- FIN SECTION : handleSendEmail ---
 
-  const handleSave = () => {
-    toast.success("✓");
-  };
-
   return (
     <div className="space-y-4">
+      {/* Bouton Download supprimé — géré par InvoiceGenerator.tsx */}
+      {/* Bouton Save supprimé — sans utilité ici */}
       <div className="flex gap-3">
-        <Button variant="hero" className="flex-1" onClick={handleDownload}>
-          <Download className="h-4 w-4 mr-2" /> {t("preview.download")}
-        </Button>
-
         <Dialog>
           <DialogTrigger asChild>
             <Button variant="outline" className="flex-1">
@@ -244,14 +182,10 @@ export function InvoicePreview({ invoice }: InvoicePreviewProps) {
             </div>
           </DialogContent>
         </Dialog>
-
-        <Button variant="outline" onClick={handleSave}>
-          <Save className="h-4 w-4" />
-        </Button>
       </div>
 
       <Card className="overflow-hidden border-border/50 shadow-glow">
-        <div ref={previewRef} className="bg-white text-gray-900 p-8 min-h-[700px] text-sm">
+        <div className="bg-white text-gray-900 p-8 min-h-[700px] text-sm">
           <div className="flex justify-between items-start mb-8">
             <div>
               {invoice.companyLogo ? (

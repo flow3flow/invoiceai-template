@@ -65,6 +65,7 @@ export interface PdfInvoice {
   document_type?: "invoice" | "credit_note" | "quote";
   // Référence facture d'origine (note de crédit uniquement)
   linked_invoice_number?: string | null;
+  structured_ref?: string | null;
 }
 
 export interface InvoiceDocumentProps {
@@ -647,6 +648,11 @@ export const InvoiceDocument = ({
           <View style={s.notesSection}>
             <Text style={s.notesLabel}>Coordonnées bancaires</Text>
             <Text style={s.notesText}>IBAN : {issuer.iban}</Text>
+            {invoice.structured_ref ? (
+              <Text style={s.notesText}>
+                Communication : {invoice.structured_ref}
+              </Text>
+            ) : null}
           </View>
         ) : null}
 
