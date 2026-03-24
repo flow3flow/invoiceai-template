@@ -3,7 +3,7 @@
 import type { VatScenario } from "@/lib/vatScenario";
 
 // ─── Document type ────────────────────────────────────────────────────────────
-export type DocumentType = "invoice" | "quote" | "order";
+export type DocumentType = "invoice" | "quote" | "order" | "credit_note";
 
 export const DOC_CONFIG: Record<DocumentType, {
   prefix: string;
@@ -13,6 +13,7 @@ export const DOC_CONFIG: Record<DocumentType, {
   invoice: { prefix: "INV", title: "FACTURE",           saveLabel: "Enregistrer en brouillon" },
   quote:   { prefix: "DEV", title: "DEVIS",             saveLabel: "Enregistrer le devis"     },
   order:   { prefix: "BC",  title: "BON DE COMMANDE",   saveLabel: "Enregistrer le BC"        },
+  credit_note: { prefix: "NC", title: "NOTE DE CREDIT",   saveLabel: "Enregistrer la NC"        },
 };
 
 // ─── Line item ────────────────────────────────────────────────────────────────

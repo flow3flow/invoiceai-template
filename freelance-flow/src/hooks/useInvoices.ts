@@ -134,6 +134,17 @@ export interface InvoiceWithClient extends Invoice {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Prefix map par type de document
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DOC_TYPE_PREFIX: Record<DocumentType, string> = {
+  invoice:     "INV",
+  quote:       "DEV",
+  order:       "BC",
+  credit_note: "NC",
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Hook
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -178,18 +189,31 @@ export const useInvoices = () => {
   };
 
   // --- DÉBUT SECTION : getNextInvoiceNumber ---
-  const getNextInvoiceNumber = async (): Promise<string> => {
+  /**
+   * Génère le prochain numéro séquentiel via la fonction SQL atomique.
+   * @param prefix  "INV" | "DEV" | "BC" | "NC" — défaut "INV"
+   *
+   * ✅ Fix : nom correct = get_next_invoice_number
+   *          paramètre année = p_fiscal_year (pas p_year)
+   *          paramètre prefix = p_prefix
+   */
+  const getNextInvoiceNumber = async (prefix: string = "INV"): Promise<string> => {
     if (!user) throw new Error("Utilisateur non authentifié");
-    const year = new Date().getFullYear();
-    const { data, error } = await supabase.rpc("generate_invoice_number", {
-      p_user_id: user.id,
-      p_year: year,
+
+    const fiscalYear = new Date().getFullYear();
+
+    const { data, error } = await supabase.rpc("get_next_invoice_number", {
+      p_user_id:     user.id,
+      p_fiscal_year: fiscalYear,
+      p_prefix:      prefix,
     });
+
     if (error) {
       const pgErr = error as PostgrestError;
       console.error("[useInvoices] getNextInvoiceNumber:", pgErr.message);
       throw new Error("Impossible de générer le numéro de facture");
     }
+
     return data as string;
   };
   // --- FIN SECTION : getNextInvoiceNumber ---
@@ -334,7 +358,7 @@ export const useInvoices = () => {
   // --- DÉBUT SECTION : convertToInvoice ---
   /**
    * Convertit un devis (quote) ou un bon de commande (order) en facture.
-   * - Génère un nouveau numéro INV-YYYY-XXXX
+   * - Génère un nouveau numéro INV-YYYY-XXXX via getNextInvoiceNumber("INV")
    * - Duplique toutes les lignes
    * - Lie la nouvelle facture au document source (linked_invoice_id)
    * - Passe le document source en statut "cancelled"
@@ -356,8 +380,8 @@ export const useInvoices = () => {
     let newInvoiceId: string | null = null;
 
     try {
-      // 1. Nouveau numéro séquentiel INV-
-      const newNumber = await getNextInvoiceNumber();
+      // ✅ Prefix "INV" explicite
+      const newNumber = await getNextInvoiceNumber("INV");
 
       const totals = computeTotals(
         source.invoice_items.map((i) => ({
@@ -367,7 +391,6 @@ export const useInvoices = () => {
         })),
       );
 
-      // 2. Créer la facture depuis le source
       const { data: newInvoice, error: invError } = await supabase
         .from("invoices")
         .insert([{
@@ -387,11 +410,9 @@ export const useInvoices = () => {
           pdf_path:              null,
           vat_scenario:          source.vat_scenario,
           issuer_vat_scheme:     source.issuer_vat_scheme,
-          // Lien vers le document source
           linked_invoice_id:     source.id,
           linked_invoice_number: source.invoice_number,
-          structured_ref:        null, // sera générée à l'envoi
-          // Snapshot émetteur conservé
+          structured_ref:        null,
           issuer_company_name:   source.issuer_company_name,
           issuer_vat_number:     source.issuer_vat_number,
           issuer_street:         source.issuer_street,
@@ -408,7 +429,6 @@ export const useInvoices = () => {
       if (invError) throw invError;
       newInvoiceId = newInvoice.id;
 
-      // 3. Dupliquer les lignes
       const { error: itemsError } = await supabase
         .from("invoice_items")
         .insert(source.invoice_items.map((item) => ({
@@ -421,7 +441,6 @@ export const useInvoices = () => {
 
       if (itemsError) throw itemsError;
 
-      // 4. Passer le document source en "cancelled"
       const { error: cancelError } = await supabase
         .from("invoices")
         .update({ status: "cancelled" })
@@ -466,8 +485,8 @@ export const useInvoices = () => {
     let creditNoteId: string | null = null;
 
     try {
-      const rawNumber = await getNextInvoiceNumber();
-      const cnNumber = rawNumber.replace(/^INV-/, "NC-");
+      // ✅ Fix : prefix "NC" direct — plus de string replace fragile
+      const cnNumber = await getNextInvoiceNumber("NC");
 
       const { data: creditNote, error: cnError } = await supabase
         .from("invoices")
