@@ -7,12 +7,14 @@
 ![Supabase](https://img.shields.io/badge/Supabase-Backend-3ECF8E?logo=supabase&logoColor=white)
 ![Tailwind](https://img.shields.io/badge/Tailwind-CSS-06B6D4?logo=tailwindcss&logoColor=white)
 ![Peppol](https://img.shields.io/badge/Peppol-Ready-orange)
+![Security](https://img.shields.io/badge/Security-42%2F100-red)
+![MVP](https://img.shields.io/badge/MVP-82%25-yellow)
 ![License](https://img.shields.io/badge/license-MIT-black)
 
 **La première app de facturation belge pensée exclusivement pour les indépendants et TPE.**  
 Tu décris ta prestation → l'IA génère ta facture conforme Peppol → elle part en 30 secondes.
 
-[🚀 Demo live](#) · [📖 Docs](#installation) · [🐛 Issues](https://github.com/flow3flow/freelance-flow/issues)
+[🚀 Demo live](#) · [📖 Docs](#installation) · [🐛 Issues](https://github.com/flow3flow/invoiceai-template/issues)
 
 </div>
 
@@ -20,293 +22,332 @@ Tu décris ta prestation → l'IA génère ta facture conforme Peppol → elle p
 
 ## Pourquoi InvoiceAI existe
 
-> **Depuis le 1er janvier 2026, toutes les factures B2B entre assujettis TVA belges doivent être électroniques (format UBL) et transiter via le réseau Peppol.** Le PDF envoyé par email n'est plus légalement valable.
+> **Depuis le 1er janvier 2026, toutes les factures B2B entre assujettis TVA belges doivent être électroniques (format UBL) et transiter via le réseau Peppol.** Le PDF envoyé par email n'est plus légalement valable pour le B2B.
 
-**Le problème :** 1,2 million d'indépendants belges concernés. La majorité utilisait encore Word + PDF par email → désormais illégal. Les solutions existantes (Odoo, Billit, Falco) sont complexes, chères ou pensées pour de grandes entreprises.
+**Le problème :** 1,2 million d'indépendants belges concernés. La majorité utilisait encore Word + PDF. Les solutions existantes (Odoo, Billit, Falco) sont complexes, chères ou pensées pour des entreprises de 10 personnes minimum.
 
 **Notre réponse :** Le scalpel laser face au couteau suisse Odoo.
 
 | | Odoo | Billit / Falco | **InvoiceAI** | Word + PDF |
 |---|---|---|---|---|
 | Cible | PME 10-500p | Comptables / PME | **Freelances / TPE** | Tout le monde |
-| Prix | 300€+/mois | Variable | **9–19€/mois** | 0€ (illégal) |
+| Prix | 300€+/mois | Variable | **9–19€/mois** | 0€ (illégal B2B) |
 | IA générative | ❌ | ❌ | **✅ Cœur produit** | ❌ |
-| Peppol 2026 | ✅ | ✅ Natif | ✅ Via API *(roadmap)* | ❌ Illégal |
-| Bilingue FR/NL | Partiel | Partiel | **✅ Natif** | Manuel |
+| Peppol 2026 | ✅ | ✅ Natif | ✅ Via API *(Sprint 3)* | ❌ Illégal |
+| BCE + Peppol check | ❌ | ❌ | **✅ Natif** | ❌ |
+| Mentions légales auto | ❌ | ❌ | **✅ 14 scénarios** | ❌ |
 | Onboarding | Semaines | Jours | **2 minutes** | Immédiat |
 | UX moderne | Lourd | Fonctionnel | **✅ Premium** | N/A |
 
 ---
 
-## Aperçu
+## Fonctionnalités livrées ✅ (MVP ~82%)
 
-| Light mode | Dark mode |
-|---|---|
-| ![Landing light](docs/screenshots/landing-light.png) | ![Landing dark](docs/screenshots/landing-dark.png) |
-| ![Dashboard light](docs/screenshots/dashboard-light.png) | ![Dashboard dark](docs/screenshots/dashboard-dark.png) |
-| ![Generator light](docs/screenshots/generator-light.png) | ![Generator dark](docs/screenshots/generator-dark.png) |
-
----
-
-## Fonctionnalités actuelles ✅
+### Facturation complète
+- Création factures, devis, bons de commande (`DocumentType`)
+- Numérotation séquentielle DB sans trou (`generate_invoice_number()`)
+- Calcul TVA automatique — 14 scénarios BE/FR (Art. 39bis, 21§2, 44, 56bis, 293B...)
+- Snapshot émetteur immuable (`issuer_*`) — intégrité fiscale garantie
+- Référence structurée belge `+++XXX/XXXX/XXXXX+++` (modulo 97)
+- Note de crédit workflow légal (AR n°1 art. 54 BE / CGI art. 289 FR)
 
 ### Dashboard financier
-- Vue synthétique : total facturé, payé, en attente, en retard
-- Graphique d'évolution du CA sur 6 mois (Recharts)
-- Répartition des statuts en donut chart
+- KPI : total facturé, payé, en attente, en retard
+- Graphique CA 6 mois (Recharts) + donut statuts
 - Recherche et filtre par statut en temps réel
+- Téléchargement PDF depuis le dashboard
 
-### Génération de factures
-- Création de factures avec lignes de prestation
-- Calcul automatique de la TVA (21% / 6% / 0%) — conforme BE & FR
-- Sélection client avec auto-remplissage des champs
-- Sélection du profil entreprise émetteur
-- Aperçu en direct avant sauvegarde
-- Téléchargement PDF directement depuis le dashboard
+### Clients — BCE + Peppol
+- Lookup Banque Carrefour des Entreprises (kbodata.be → fallback VIES)
+- Vérification Peppol via directory officiel
+- Toggle personne physique B2C / morale B2B
+- Badge Peppol actif / non enregistré
 
-### Statuts disponibles
-`draft` · `sent` · `paid` · `overdue` · `cancelled`
+### Onboarding
+- Wizard 3 steps (profil → client → terminé)
+- `OnboardingGuard` — redirect automatique anti-boucle
 
-### Gestion des clients
-Stockage complet : nom, entreprise, email, adresse, ville, code postal, pays, numéro de TVA.
-Les clients sont réutilisables sur toutes les factures.
-
-### Profils d'entreprise multi-entités
-Un compte = plusieurs profils d'entreprise.
-Idéal pour les freelances avec plusieurs activités, agences multi-marques, ou consultants multi-structures.
-Chaque profil : nom, TVA, adresse complète, email, IBAN.
-
-### Sécurité SaaS-grade
-- Row Level Security (RLS) Supabase — isolation totale des données par utilisateur
-- Snapshot émetteur immuable sur chaque facture (`issuer_*`) — intégrité fiscale garantie
-- RPC sécurisés (`set_default_business_profile`) via `auth.uid()` côté serveur
-- Soft-delete sur les profils avec protection si factures liées
+### SaaS & Auth
+- Supabase Auth + RLS 6 tables — isolation multi-tenant
+- Stripe plans Free / 9€ / 19€ / 39€ + webhooks
+- Email Resend + PDF en pièce jointe
+- 5 Edge Functions déployées
 
 ---
 
-## Vision produit complète — Roadmap
+## 🔴 Failles critiques — À corriger avant 1er client payant
 
-> Ce qui suit est la vision complète du produit. Certaines fonctionnalités sont en cours de développement, d'autres planifiées. C'est précisément cette vision qui positionne InvoiceAI comme un outil comptable professionnel et non un simple générateur de factures.
+### 1. Trigger immuabilité SQL (LÉGAL — URGENT)
+Une facture `sent` ou `paid` est actuellement modifiable. Illégal fiscalement.
 
-### Sprint 1 — Monétisation *(en cours)*
-- [ ] **Stripe** — abonnements Starter 9€ / Pro 19€ / Business 39€
-- [ ] **Resend** — envoi de factures par email avec confirmation de livraison
-- [ ] **Génération automatique** du numéro de facture
+```sql
+CREATE OR REPLACE FUNCTION block_invoice_update()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF OLD.status IN ('sent', 'paid') THEN
+    RAISE EXCEPTION 'Facture immuable — créez une note de crédit (AR n°1 art. 54)';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
-### Sprint 2 — IA générative *(différenciant clé)*
-- [ ] **Claude API (Anthropic)** — génération automatique des lignes de facture depuis une description en langage naturel
-- [ ] Prompt engineering pour conformité TVA BE/FR automatique
-- [ ] Génération des mentions légales obligatoires
-- [ ] Suggestions intelligentes basées sur l'historique client
+CREATE TRIGGER enforce_invoice_immutability
+  BEFORE UPDATE ON invoices
+  FOR EACH ROW EXECUTE FUNCTION block_invoice_update();
+```
 
-### Sprint 3 — Conformité Peppol / UBL *(obligation légale BE 2026)*
-- [ ] **Intégration Billit API** — conversion UBL et envoi via réseau Peppol
-- [ ] Génération format UBL 2.1 (standard européen e-invoicing)
-- [ ] Archivage 7 ans conforme GDPR
-- [ ] **API VIES (Europe)** — validation numéros TVA BE/FR en temps réel
+### 2. Auth JWT manquante sur Edge Functions
+`bce-lookup` et `peppol-check` déployées `--no-verify-jwt` → n'importe qui peut les appeler.
 
-### Sprint 4 — Analytics & Comptabilité
-- [ ] Page de détail facture avec changement de statut
-- [ ] Rappels automatiques pour factures en retard
-- [ ] Export comptable CSV / Excel
-- [ ] Intégrations comptables : WinBooks, BOB, Exact Online
-- [ ] Multi-devises (€, CHF, GBP)
+### 3. Score sécurité : 42/100
+- ❌ CSP headers absents dans `vercel.json`
+- ❌ Rate limiting Claude absent (risque DoS économique)
+- ❌ `audit_logs` table non alimentée (obligation légale 7 ans)
+- ❌ Bucket Storage à passer en privé + URL signées
 
-### Sprint 5 — Croissance
-- [ ] Portail client — lien de paiement en ligne
-- [ ] **Stripe Payment Links** — paiement facture directement depuis le PDF
-- [ ] Bilingue FR/NL natif complet
-- [ ] Application mobile (React Native ou PWA)
-- [ ] API publique pour intégrations tierces
+### 4. Privacy Policy RGPD manquante
+Page `/privacy` obligatoire avant tout utilisateur réel.
 
 ---
 
-## Flux d'une facture — De l'idée à Peppol *(vision complète)*
+## Roadmap
+
+### 🟠 Sprint 2 — Après 1er client
+- [ ] Trigger immuabilité SQL ← **urgent légal**
+- [ ] Relances auto J+7/J+15
+- [ ] Decimal.js (remplace float natif — intégrité financière)
+- [ ] `audit_logs` alimentés (qui/quoi/quand/IP)
+- [ ] Privacy Policy RGPD
+- [ ] Conversion Devis → Facture en 1 clic
+- [ ] Statuts devis/BC (brouillon/envoyé/accepté/refusé)
+- [ ] Dashboard empty state proactif ("3 factures en retard, relancer ?")
+- [ ] Domaine Resend vérifié
+
+### 🟡 Sprint 3 — Après 10 clients
+- [ ] **Peppol émission UBL 2.1** via Billit API ← obligation légale B2B BE
+- [ ] Réception Peppol entrante (onglet "Achats")
+- [ ] Notes de frais OCR
+- [ ] Rate limiting Claude (20 req/h/user)
+- [ ] HITL checkbox obligatoire avant envoi Peppol
+- [ ] `llm_invoice_logs` + `vat_warnings`
+
+### 🔵 Sprint 4 — Croissance
+- [ ] **IA génération facture** (bouton ✨ déjà visible en Dashboard)
+- [ ] Connexion bancaire Isabel/Ponto (matching paiements automatique)
+- [ ] Export comptable Winbooks/Horus/Octopus
+- [ ] France e-facturation 2027 (PDP)
+- [ ] Relances IA générées par Claude
+
+---
+
+## Flux d'une facture — Vision complète
 
 ```
 1. L'utilisateur décrit sa prestation en langage naturel
          ↓
-2. Claude API génère automatiquement les lignes, la TVA correcte (BE 21% / FR 20%), les mentions légales
+2. Claude API génère lignes + TVA correcte + mentions légales
          ↓
-3. L'utilisateur valide en 1 clic
+3. L'utilisateur valide (HITL obligatoire)
          ↓
-4. Supabase stocke la facture (archivage 7 ans, snapshot immuable)
+4. Supabase stocke (snapshot immuable, archivage 7 ans)
          ↓
-5. Billit API convertit en UBL et envoie via Peppol au client ← réseau officiel
+5. Billit API convertit en UBL → réseau Peppol
          ↓
-6. Resend envoie une confirmation email + PDF visuel au client
+6. Resend envoie confirmation email + PDF visuel
          ↓
-7. Dashboard mis à jour en temps réel — CA, statuts, analytics
+7. Dashboard mis à jour — CA, statuts, analytics
 ```
-
----
-
-## Business Model
-
-### Pricing Freemium
-
-| Plan | Prix | Factures/mois | IA incluse | Cible |
-|---|---|---|---|---|
-| **Free** | 0€ | 3/mois | Basique | Découverte |
-| **Starter** | 9€/mois | 20/mois | ✅ Oui | Freelance débutant |
-| **Pro** | 19€/mois | Illimité | ✅ Avancée | Freelance actif / TPE |
-| **Business** | 39€/mois | Illimité | ✅ Premium | Multi-utilisateurs |
-
-### Projection de revenus
-
-- **Conservateur** (0,1% du marché BE+FR) : 1 200 clients Pro → ~22 800€/mois
-- **Réaliste** (0,5%) : 6 000 clients → ~114 000€/mois
-- **Optimiste** (1%) : 12 000 clients → ~228 000€/mois
-
-*Marché adressable : 1,2M indépendants BE + 4,1M TPE/indépendants FR*
 
 ---
 
 ## Stack technique
 
-| Couche | Technologie | Rôle |
+| Couche | Technologie | Statut |
 |---|---|---|
-| Frontend | React 18 + TypeScript | Interface utilisateur moderne |
-| Build | Vite | Dev server + bundler |
-| Styles | Tailwind CSS + shadcn/ui | Design system cohérent |
-| Routing | React Router v6 | Navigation SPA |
-| Backend & Auth | Supabase (PostgreSQL + RLS) | Auth, DB, stockage |
-| Graphiques | Recharts | Dashboard analytics |
-| PDF | @react-pdf/renderer | Génération PDF côté client |
-| Notifications | Sonner | Toasts UX |
-| IA générative | Claude API (Anthropic) | Génération factures *(roadmap)* |
-| Conformité Peppol | Billit API / Falco API | Envoi UBL via réseau Peppol *(roadmap)* |
-| Email | Resend | Envoi factures, relances *(roadmap)* |
-| Paiements | Stripe | Abonnements SaaS *(roadmap)* |
-| Validation TVA | API VIES (Europe) | Vérification TVA BE/FR *(roadmap)* |
-| Déploiement | Vercel | CI/CD, hosting |
+| Frontend | React 18 + TypeScript strict + Vite | ✅ Prod |
+| Styles | Tailwind CSS + shadcn/ui (Radix) | ✅ Prod |
+| Backend & Auth | Supabase (PostgreSQL + RLS + Edge Functions) | ✅ Prod |
+| PDF | @react-pdf/renderer | ✅ Prod |
+| Email | Resend (Edge Function) | ✅ Sandbox |
+| Paiements | Stripe (Edge Function webhook) | ✅ Prod |
+| BCE lookup | kbodata.be → fallback VIES | ✅ Prod |
+| Peppol check | directory.peppol.eu (Edge Function) | ✅ Prod |
+| IA générative | Claude API (Anthropic) | 🔵 Sprint 4 |
+| Peppol émission | Billit API (UBL 2.1) | 🟡 Sprint 3 |
+| Banque | Isabel/Ponto API | 🔵 Sprint 4 |
+| Déploiement | Vercel | ✅ Prod |
 
 ---
 
 ## Architecture
 
 ```
-src/
-├── components/
-│   ├── ui/                    # shadcn/ui components
-│   ├── invoice/               # ClientSelect, BusinessProfileSelect, InvoiceForm, InvoicePreview
-│   └── pdf/                   # InvoiceDocument.tsx
-├── contexts/
-│   ├── AuthContext.tsx
-│   └── LanguageContext.tsx
-├── hooks/
-│   ├── useInvoices.ts         # CRUD + getInvoices + getInvoiceItems
-│   ├── useClients.ts
-│   └── useBusinessProfiles.ts
-├── lib/
-│   ├── supabase.ts
-│   ├── invoiceCalculations.ts # Source unique calcul TVA
-│   └── pdf/
-│       └── generateInvoicePdf.ts
-└── pages/
-    ├── Dashboard.tsx
-    ├── InvoiceGenerator.tsx
-    ├── Clients.tsx
-    └── Settings.tsx
+freelance-flow/
+├── src/
+│   ├── components/
+│   │   ├── ui/                        # shadcn/ui primitives
+│   │   ├── invoice/
+│   │   │   ├── InvoiceForm.tsx        # Formulaire (docType conditionnel)
+│   │   │   ├── InvoicePreview.tsx     # Aperçu PDF (docType dynamique)
+│   │   │   ├── VatScenarioSelector.tsx
+│   │   │   └── ClientSelect.tsx
+│   │   └── OnboardingGuard.tsx
+│   ├── pages/
+│   │   ├── Index.tsx                  # Landing page
+│   │   ├── Dashboard.tsx
+│   │   ├── InvoiceGenerator.tsx       # Facture / Devis / BC
+│   │   ├── Clients.tsx                # BCE + Peppol
+│   │   ├── Onboarding.tsx             # Wizard 3 steps
+│   │   └── Settings.tsx
+│   ├── hooks/
+│   │   ├── useInvoices.ts
+│   │   ├── useClients.ts              # is_company + peppol_id
+│   │   └── useBusinessProfiles.ts
+│   ├── lib/
+│   │   ├── vatScenario.ts             # 14 scénarios TVA BE/FR
+│   │   ├── structured-ref.ts          # Modulo 97
+│   │   ├── bce-api.ts                 # BCE lookup
+│   │   └── peppol-check.ts            # Peppol check
+│   └── types/
+│       └── invoice.ts                 # DocumentType + InvoiceData
+└── supabase/
+    └── functions/
+        ├── send-invoice-email/        # ACTIVE v9
+        ├── create-checkout/           # ACTIVE v2
+        ├── stripe-webhook/            # ACTIVE v2
+        ├── bce-lookup/                # ACTIVE v2
+        └── peppol-check/              # ACTIVE v1
 ```
 
 ---
 
-## Base de données (Supabase)
+## Base de données
 
-### `business_profiles`
-```
-id · user_id · company_name · vat_number
-street · zip_code · city · country_code
-email · iban · logo_path
-is_default · deleted_at · created_at · updated_at
-```
+### Tables principales
 
-### `clients`
 ```
-id · user_id · name · company · email
-street · zip_code · city · country_code · vat_number
-created_at · updated_at
-```
+business_profiles   id · user_id · company_name · vat_number · street · zip_code
+                    city · country_code · email · iban · logo_path · is_default
 
-### `invoices`
-```
-id · user_id · client_id · business_profile_id
-invoice_number · status · issue_date · due_date
-subtotal · vat_amount · total · notes · pdf_path
+clients             id · user_id · name · company · email · street · zip_code
+                    city · country_code · vat_number · is_company
+                    peppol_id · peppol_verified_at · bce_verified_at
 
--- Snapshot émetteur immuable (rempli par trigger DB à la création)
--- Garantit l'intégrité fiscale : une modif du profil n'altère pas les factures passées
-issuer_company_name · issuer_vat_number
-issuer_street · issuer_zip_code · issuer_city
-issuer_country_code · issuer_email · issuer_iban · issuer_logo_path
+invoices            id · user_id · client_id · business_profile_id
+                    invoice_number · status · issue_date · due_date
+                    subtotal · vat_amount · total · notes · vat_scenario
+                    document_type · validity_days · valid_until · client_reference
+                    structured_ref · issuer_* (snapshot immuable)
 
-created_at · updated_at
+invoice_items       id · invoice_id · description · quantity · unit_price · vat_rate
+
+profiles            id · user_id · onboarding_completed · stripe_customer_id · plan
 ```
 
-### `invoice_items`
-```
-id · invoice_id · description · quantity · unit_price · vat_rate
-```
+### Migrations appliquées (session 21 mars 2026)
 
-> **Sécurité :** RLS activé sur toutes les tables. Un utilisateur ne peut jamais lire ou modifier les données d'un autre. Trigger de protection sur les colonnes `issuer_*` — immuables après création.
+```sql
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS is_company BOOLEAN DEFAULT true;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS peppol_id TEXT;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS peppol_verified_at TIMESTAMPTZ;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS bce_verified_at TIMESTAMPTZ;
+
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN DEFAULT false;
+
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS structured_ref TEXT;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS document_type TEXT DEFAULT 'invoice'
+  CHECK (document_type IN ('invoice','quote','order'));
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS validity_days INTEGER;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS valid_until DATE;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS client_reference TEXT;
+
+-- ⚠️ À appliquer immédiatement
+CREATE TRIGGER enforce_invoice_immutability
+  BEFORE UPDATE ON invoices
+  FOR EACH ROW EXECUTE FUNCTION block_invoice_update();
+```
 
 ---
 
-## Prérequis
+## Business Model
 
-- Node.js >= 18
-- Compte [Supabase](https://supabase.com) (projet créé)
-- npm ou yarn
+| Plan | Prix | Factures/mois | Features |
+|---|---|---|---|
+| **Free** | 0€ | 3/mois | PDF, 1 profil |
+| **Starter** | 9€/mois | 20/mois | PDF + email + Peppol émission |
+| **Pro** | 19€/mois | Illimitées | Tout Starter + pièces jointes + notes de frais |
+| **Business** | 39€/mois | Illimitées | Multi-entreprises + export comptable + IA |
+
+> 💡 Déductible à **120%** en Belgique (2024-2027) — argument commercial fort.
+
+### Projections MRR
+
+| Scénario | Part marché | Clients | MRR |
+|---|---|---|---|
+| Conservateur | 0,1% | 1 200 | ~22 800€ |
+| Réaliste | 0,5% | 6 000 | ~114 000€ |
+| Optimiste | 1% | 12 000 | ~228 000€ |
+
+*Marché adressable : 1,2M indépendants BE + 4,1M TPE FR*
+
+---
+
+## Règles d'or immuables
+
+```
+1. SNAPSHOT ÉMETTEUR     Toute facture utilise issuer_* — jamais le profil live
+2. NOTE DE CRÉDIT        Une facture validée ne se modifie JAMAIS directement
+3. NUMÉROTATION DB       generate_invoice_number() côté DB uniquement, jamais client
+4. COUNTRY_CODE          Systématique sur toutes les entités (multi-pays)
+5. PAS Intl.NumberFormat Instable PDF/Edge — formatage manuel uniquement
+6. JAMAIS catch(e: any)  Typer PostgrestError, logger ET remonter à l'UI
+```
+
+---
+
+## Git — Branches
+
+```
+main                        ✅ Production
+feat/sprint2-dev            🟢 Branche active
+feat/client-bce-peppol      ✅ Mergé
+feat/vat-pdf-fix-save       ✅ Mergé
+feat/client-placeholders-ux ✅ Mergé
+```
 
 ---
 
 ## Installation
 
 ```bash
-# Cloner le projet
-git clone https://github.com/flow3flow/freelance-flow.git
-cd freelance-flow
-
-# Installer les dépendances
+git clone https://github.com/flow3flow/invoiceai-template.git
+cd invoiceai-template/freelance-flow
 npm install
-
-# Configurer les variables d'environnement
 cp .env.example .env.local
-# Remplir les valeurs ci-dessous
-
-# Lancer le serveur de développement
+# Remplir les valeurs
 npm run dev
+# → http://localhost:8080
 ```
 
----
-
-## Variables d'environnement
-
-Créer un fichier `.env.local` à la racine :
+### Variables d'environnement
 
 ```env
-# Supabase — disponible dans Project Settings → API
-VITE_SUPABASE_URL=https://xxxxxxxxxxxx.supabase.co
-VITE_SUPABASE_ANON_KEY=votre_clé_anon_publique
-
-# À venir (roadmap)
-# VITE_ANTHROPIC_API_KEY=
-# VITE_STRIPE_PUBLIC_KEY=
-# VITE_BILLIT_API_KEY=
+VITE_SUPABASE_URL=https://ztdovijptfjrydrpjwab.supabase.co
+VITE_SUPABASE_ANON_KEY=votre_clé_anon
+VITE_STRIPE_PUBLISHABLE_KEY=pk_test_...
+VITE_STRIPE_PRICE_STARTER=price_...
+VITE_STRIPE_PRICE_PRO=price_...
+VITE_STRIPE_PRICE_BUSINESS=price_...
 ```
 
-> ⚠️ Ne jamais committer `.env.local`. Il est dans `.gitignore`.
+> ⚠️ Ne jamais committer `.env.local` — il est dans `.gitignore`.
 
----
+### Déployer une Edge Function
 
-## Déploiement
-
-Compatible avec :
-
-- **[Vercel](https://vercel.com)** — recommandé (`npm run build`, output `dist/`)
-- [Netlify](https://netlify.com)
-- [Lovable](https://lovable.dev) — édition via prompts également possible
+```bash
+cd freelance-flow
+supabase functions deploy <nom> --no-verify-jwt
+```
 
 ---
 
@@ -316,7 +357,7 @@ Compatible avec :
 git checkout -b feat/ma-fonctionnalite
 git commit -m "feat: description claire"
 git push origin feat/ma-fonctionnalite
-# → Pull Request
+# → Pull Request vers main
 ```
 
 ---
@@ -334,5 +375,6 @@ MIT — voir [LICENSE](./LICENSE)
 ---
 
 <div align="center">
-Fait avec ❤️ pour les freelances de Belgique & France · Business Project Flow · 2026
+Fait avec ❤️ pour les freelances de Belgique & France · Business Project Flow · 2026<br>
+<sub>Dernière mise à jour : 21 mars 2026</sub>
 </div>

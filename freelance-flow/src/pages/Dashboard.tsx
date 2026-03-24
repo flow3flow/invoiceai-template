@@ -23,7 +23,7 @@ import { toast } from "sonner";
 import {
   Plus, Search, DollarSign, Clock, CheckCircle,
   AlertTriangle, Download, Loader2, FileX, Network,
-  FileText, ChevronDown,
+  FileText, ChevronDown, ArrowRightCircle,
 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import {
@@ -77,6 +77,16 @@ function buildStatusData(invoices: InvoiceWithClient[]) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Badge document type
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DOC_TYPE_BADGE: Record<string, { label: string; className: string } | undefined> = {
+  quote:       { label: "DEV", className: "text-purple-500 border-purple-500/30 bg-purple-500/10" },
+  order:       { label: "BC",  className: "text-amber-500 border-amber-500/30 bg-amber-500/10"   },
+  credit_note: { label: "NC",  className: "text-destructive border-destructive/30"               },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Status config
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -86,21 +96,22 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   paid:      { label: "Payé",      className: "bg-green-500/10 text-green-500 border-green-500/20" },
   overdue:   { label: "En retard", className: "bg-destructive/10 text-destructive border-destructive/20" },
   cancelled: { label: "Annulé",    className: "bg-orange-500/10 text-orange-500 border-orange-500/20" },
+  // --- AJOUT : badge jaune pour devis/BC convertis en facture ---
+  converted: { label: "Converti",  className: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20" },
 };
 
-// Transitions autorisées par statut — miroir de useInvoices
 const STATUS_TRANSITIONS: Record<InvoiceStatus, { value: InvoiceStatus; label: string; className: string }[]> = {
   draft:     [
-    { value: "sent",    label: "✉️ Marquer comme envoyée",   className: "text-blue-500" },
-    { value: "overdue", label: "⏰ Marquer en retard",        className: "text-destructive" },
+    { value: "sent",    label: "✉️ Marquer comme envoyée",  className: "text-blue-500" },
+    { value: "overdue", label: "⏰ Marquer en retard",       className: "text-destructive" },
   ],
   sent:      [
-    { value: "paid",    label: "✅ Marquer comme payée",      className: "text-green-500" },
-    { value: "overdue", label: "⏰ Marquer en retard",        className: "text-destructive" },
+    { value: "paid",    label: "✅ Marquer comme payée",     className: "text-green-500" },
+    { value: "overdue", label: "⏰ Marquer en retard",       className: "text-destructive" },
   ],
   overdue:   [
-    { value: "sent",    label: "✉️ Marquer comme envoyée",   className: "text-blue-500" },
-    { value: "paid",    label: "✅ Marquer comme payée",      className: "text-green-500" },
+    { value: "sent",    label: "✉️ Marquer comme envoyée",  className: "text-blue-500" },
+    { value: "paid",    label: "✅ Marquer comme payée",     className: "text-green-500" },
   ],
   paid:      [],
   cancelled: [],
@@ -166,14 +177,17 @@ function TableSkeleton() {
 const Dashboard = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
-  const { getInvoices, createCreditNote, updateInvoiceStatus, loading } = useInvoices();
+  const { getInvoices, createCreditNote, convertToInvoice, updateInvoiceStatus, loading } = useInvoices();
 
-  const [invoices, setInvoices] = useState<InvoiceWithClient[]>([]);
-  const [loadingData, setLoadingData] = useState(true);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [invoices, setInvoices]           = useState<InvoiceWithClient[]>([]);
+  const [loadingData, setLoadingData]     = useState(true);
+  const [search, setSearch]               = useState("");
+  const [statusFilter, setStatusFilter]   = useState<string>("all");
+  // --- AJOUT : filtre par type de document ---
+  const [docTypeFilter, setDocTypeFilter] = useState<string>("all");
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [updatingId, setUpdatingId]       = useState<string | null>(null);
+  const [convertingId, setConvertingId]   = useState<string | null>(null);
   const [creditNoteInvoice, setCreditNoteInvoice] = useState<InvoiceWithClient | null>(null);
 
   // ── Chargement
@@ -213,6 +227,7 @@ const Dashboard = () => {
   const statusData  = useMemo(() => buildStatusData(invoices), [invoices]);
   const totalCount  = invoices.length;
 
+  // --- AJOUT : filtrage avec docType ---
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     return invoices.filter((inv) => {
@@ -221,10 +236,11 @@ const Dashboard = () => {
         inv.invoice_number.toLowerCase().includes(q) ||
         (inv.clients?.name ?? "").toLowerCase().includes(q) ||
         (inv.clients?.company ?? "").toLowerCase().includes(q);
-      const matchStatus = statusFilter === "all" || inv.status === statusFilter;
-      return matchSearch && matchStatus;
+      const matchStatus  = statusFilter  === "all" || inv.status        === statusFilter;
+      const matchDocType = docTypeFilter === "all" || inv.document_type === docTypeFilter;
+      return matchSearch && matchStatus && matchDocType;
     });
-  }, [invoices, search, statusFilter]);
+  }, [invoices, search, statusFilter, docTypeFilter]);
 
   const renderDonutLabel = (props: { viewBox?: { cx: number; cy: number } }) => {
     const cx = props.viewBox?.cx ?? 0;
@@ -232,7 +248,7 @@ const Dashboard = () => {
     return (
       <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central">
         <tspan x={cx} y={cy - 8} className="fill-foreground" style={{ fontSize: 24, fontWeight: 700 }}>{totalCount}</tspan>
-        <tspan x={cx} y={cy + 14} className="fill-muted-foreground" style={{ fontSize: 12 }}>factures</tspan>
+        <tspan x={cx} y={cy + 14} className="fill-muted-foreground" style={{ fontSize: 12 }}>documents</tspan>
       </text>
     );
   };
@@ -257,7 +273,7 @@ const Dashboard = () => {
           issuer_vat_scheme:     inv.issuer_vat_scheme ?? "normal",
           document_type:         inv.document_type ?? "invoice",
           linked_invoice_number: inv.linked_invoice_number ?? null,
-          structured_ref: inv.structured_ref ?? null,
+          structured_ref:        inv.structured_ref ?? null,
         },
         {
           company_name: inv.issuer_company_name ?? "",
@@ -288,19 +304,23 @@ const Dashboard = () => {
     }
   };
 
-  // --- DÉBUT SECTION : handler changement statut ---
   const handleStatusChange = async (inv: InvoiceWithClient, newStatus: InvoiceStatus) => {
     setUpdatingId(inv.id);
     const success = await updateInvoiceStatus(inv.id, inv.status, newStatus);
     if (success) {
-      // Mise à jour optimiste locale — pas besoin de recharger toute la liste
       setInvoices((prev) =>
         prev.map((i) => i.id === inv.id ? { ...i, status: newStatus } : i)
       );
     }
     setUpdatingId(null);
   };
-  // --- FIN SECTION : handler changement statut ---
+
+  const handleConvertToInvoice = async (inv: InvoiceWithClient) => {
+    setConvertingId(inv.id);
+    const result = await convertToInvoice(inv);
+    if (result) await loadInvoices();
+    setConvertingId(null);
+  };
 
   const handleCreditNoteConfirm = async (reason: string) => {
     if (!creditNoteInvoice) return;
@@ -427,22 +447,72 @@ const Dashboard = () => {
             </div>
 
             {/* ── Filtres ─────────────────────────────────────────── */}
-            <div className="flex flex-col sm:flex-row gap-4 mb-6">
+            {/* --- AJOUT : 3 filtres — recherche + statut + type document --- */}
+            <div className="flex flex-col sm:flex-row gap-3 mb-6">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input placeholder={t("dashboard.search")} className="pl-10" value={search} onChange={(e) => setSearch(e.target.value)} />
               </div>
+
+              {/* Filtre type de document */}
+              <Select value={docTypeFilter} onValueChange={setDocTypeFilter}>
+                <SelectTrigger className="w-full sm:w-48">
+                  <SelectValue placeholder="Tous les types" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">🗂 Tous les types</SelectItem>
+                  <SelectItem value="invoice">🧾 Factures</SelectItem>
+                  <SelectItem value="quote">📋 Devis</SelectItem>
+                  <SelectItem value="order">📦 Bons de commande</SelectItem>
+                  <SelectItem value="credit_note">↩️ Notes de crédit</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {/* Filtre statut */}
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-full sm:w-48"><SelectValue placeholder={t("dashboard.filterAll")} /></SelectTrigger>
+                <SelectTrigger className="w-full sm:w-48">
+                  <SelectValue placeholder={t("dashboard.filterAll")} />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{t("dashboard.filterAll")}</SelectItem>
                   <SelectItem value="draft">{t("dashboard.filterDraft")}</SelectItem>
                   <SelectItem value="sent">{t("dashboard.filterSent")}</SelectItem>
                   <SelectItem value="paid">{t("dashboard.filterPaid")}</SelectItem>
                   <SelectItem value="overdue">{t("dashboard.filterOverdue")}</SelectItem>
+                  <SelectItem value="cancelled">Annulé</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+
+            {/* ── Compteurs par type ─────────────────────────────── */}
+            {!loadingData && (
+              <div className="flex flex-wrap gap-2 mb-4 text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">{filtered.length} document{filtered.length > 1 ? "s" : ""}</span>
+                <span>·</span>
+                {[
+                  { type: "invoice",     label: "facture",          emoji: "🧾" },
+                  { type: "quote",       label: "devis",            emoji: "📋" },
+                  { type: "order",       label: "bon de commande",  emoji: "📦" },
+                  { type: "credit_note", label: "note de crédit",   emoji: "↩️" },
+                ].map(({ type, label, emoji }) => {
+                  const count = filtered.filter((i) => i.document_type === type).length;
+                  if (count === 0) return null;
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => setDocTypeFilter(docTypeFilter === type ? "all" : type)}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs transition-colors
+                        ${docTypeFilter === type
+                          ? "bg-primary/10 text-primary border-primary/30 font-medium"
+                          : "border-border/40 hover:border-border hover:text-foreground"
+                        }`}
+                    >
+                      {emoji} {count} {label}{count > 1 && type !== "quote" ? "s" : ""}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             {/* ── Table ───────────────────────────────────────────── */}
             <Card className="glass border-border/50 overflow-hidden">
@@ -451,6 +521,7 @@ const Dashboard = () => {
                   <thead>
                     <tr className="border-b border-border">
                       <th className="text-left p-4 text-sm font-semibold text-muted-foreground">{t("dashboard.colInvoice")}</th>
+                      <th className="text-left p-4 text-sm font-semibold text-muted-foreground">Type</th>
                       <th className="text-left p-4 text-sm font-semibold text-muted-foreground">{t("dashboard.colClient")}</th>
                       <th className="text-right p-4 text-sm font-semibold text-muted-foreground">{t("dashboard.colAmount")}</th>
                       <th className="text-left p-4 text-sm font-semibold text-muted-foreground">{t("dashboard.colDate")}</th>
@@ -461,7 +532,7 @@ const Dashboard = () => {
                   <tbody>
                     {loadingData ? <TableSkeleton /> : filtered.length === 0 ? (
                       <tr>
-                        <td colSpan={6}>
+                        <td colSpan={7}>
                           <div className="flex flex-col items-center justify-center py-20 gap-4">
                             <FileText className="h-12 w-12 text-muted-foreground" />
                             <div className="text-center">
@@ -482,21 +553,53 @@ const Dashboard = () => {
                       </tr>
                     ) : (
                       filtered.map((inv, idx) => {
-                        const config = STATUS_CONFIG[inv.status] ?? STATUS_CONFIG.draft;
-                        const clientLabel = inv.clients?.company || inv.clients?.name || "—";
+                        // --- FIX : "Converti" si devis/BC cancelled (sans vérif linked_invoice_number) ---
+                        const isConverted = inv.status === "cancelled"
+                          && ["quote", "order"].includes(inv.document_type);
+                        const config      = isConverted
+                          ? STATUS_CONFIG.converted
+                          : STATUS_CONFIG[inv.status] ?? STATUS_CONFIG.draft;
+                        const clientLabel   = inv.clients?.company || inv.clients?.name || "—";
                         const canCreditNote = inv.status === "sent" || inv.status === "paid";
                         const isDownloading = downloadingId === inv.id;
-                        const isUpdating = updatingId === inv.id;
-                        const transitions = STATUS_TRANSITIONS[inv.status] ?? [];
+                        const isUpdating    = updatingId === inv.id;
+                        const isConverting  = convertingId === inv.id;
+                        const transitions   = STATUS_TRANSITIONS[inv.status] ?? [];
+                        const canConvert    = (inv.document_type === "quote" || inv.document_type === "order")
+                          && inv.status === "draft";
+                        const docBadge      = DOC_TYPE_BADGE[inv.document_type];
+
+                        // Type de document — badge compact
+                        const DOC_TYPE_LABEL: Record<string, { label: string; emoji: string; className: string }> = {
+                          invoice:     { label: "Facture", emoji: "🧾", className: "text-foreground/70 border-border/40 bg-muted/30" },
+                          quote:       { label: "Devis",   emoji: "📋", className: "text-purple-500 border-purple-500/30 bg-purple-500/10" },
+                          order:       { label: "BC",      emoji: "📦", className: "text-amber-500 border-amber-500/30 bg-amber-500/10" },
+                          credit_note: { label: "NC",      emoji: "↩️", className: "text-destructive border-destructive/30 bg-destructive/10" },
+                        };
+                        const typeInfo = DOC_TYPE_LABEL[inv.document_type] ?? DOC_TYPE_LABEL.invoice;
 
                         return (
-                          <tr key={inv.id} className={`border-b border-border/50 hover:bg-secondary/30 transition-colors cursor-pointer ${idx % 2 !== 0 ? "bg-muted/10" : ""}`}>
+                          <tr key={inv.id} className={`border-b border-border/50 hover:bg-secondary/30 transition-colors cursor-pointer ${isConverted || inv.status === "cancelled" ? "opacity-50" : ""} ${idx % 2 !== 0 ? "bg-muted/10" : ""}`}>
+
+                            {/* ── N° Document ─────────────────────── */}
                             <td className="p-4 font-medium font-display">
-                              {inv.invoice_number}
-                              {inv.document_type === "credit_note" && (
-                                <Badge variant="outline" className="ml-2 text-xs text-destructive border-destructive/30">NC</Badge>
+                              <div className="flex items-center gap-2">
+                                {inv.invoice_number}
+                              </div>
+                              {inv.linked_invoice_number && inv.document_type === "invoice" && (
+                                <p className="text-xs text-muted-foreground/60 mt-0.5">
+                                  ← {inv.linked_invoice_number}
+                                </p>
                               )}
                             </td>
+
+                            {/* --- AJOUT : colonne Type avec badge coloré --- */}
+                            <td className="p-4">
+                              <Badge variant="outline" className={`text-xs whitespace-nowrap ${typeInfo.className}`}>
+                                {typeInfo.emoji} {typeInfo.label}
+                              </Badge>
+                            </td>
+
                             <td className="p-4">{clientLabel}</td>
                             <td className="p-4 text-right font-medium">
                               €{Number(inv.total).toLocaleString("fr-FR", { minimumFractionDigits: 2 })}
@@ -505,30 +608,25 @@ const Dashboard = () => {
                               {new Date(inv.issue_date).toLocaleDateString("fr-FR")}
                             </td>
 
-                            {/* ── Colonne statut — cliquable si transitions disponibles */}
+                            {/* ── Colonne statut ───────────────────── */}
                             <td className="p-4">
                               {transitions.length > 0 ? (
-                                // --- DÉBUT SECTION : dropdown changement statut ---
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
-                                    <button
-                                      className="flex items-center gap-1 group focus:outline-none"
-                                      disabled={isUpdating}
-                                    >
-                                      {isUpdating ? (
-                                        <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                                      ) : (
-                                        <Badge variant="outline" className={`${config.className} cursor-pointer group-hover:opacity-80 transition-opacity`}>
-                                          {config.label}
-                                        </Badge>
-                                      )}
+                                    <button className="flex items-center gap-1 group focus:outline-none" disabled={isUpdating}>
+                                      {isUpdating
+                                        ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                                        : (
+                                          <Badge variant="outline" className={`${config.className} cursor-pointer group-hover:opacity-80 transition-opacity`}>
+                                            {config.label}
+                                          </Badge>
+                                        )
+                                      }
                                       <ChevronDown className="h-3 w-3 text-muted-foreground group-hover:text-foreground transition-colors" />
                                     </button>
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent align="start" className="w-52">
-                                    <div className="px-2 py-1.5 text-xs text-muted-foreground font-medium">
-                                      Changer le statut
-                                    </div>
+                                    <div className="px-2 py-1.5 text-xs text-muted-foreground font-medium">Changer le statut</div>
                                     <DropdownMenuSeparator />
                                     {transitions.map((transition) => (
                                       <DropdownMenuItem
@@ -541,20 +639,37 @@ const Dashboard = () => {
                                     ))}
                                   </DropdownMenuContent>
                                 </DropdownMenu>
-                                // --- FIN SECTION : dropdown changement statut ---
                               ) : (
-                                // Statut immuable (paid, cancelled) — pas de dropdown
                                 <Badge variant="outline" className={config.className}>
                                   {config.label}
                                 </Badge>
                               )}
                             </td>
 
-                            {/* ── Actions ─────────────────────────────────────── */}
+                            {/* ── Actions ─────────────────────────── */}
                             <td className="p-4 text-right">
                               <div className="flex items-center justify-end gap-1">
 
-                                {/* Download PDF */}
+                                {canConvert && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10"
+                                        disabled={isConverting || loading}
+                                        onClick={(e) => { e.stopPropagation(); handleConvertToInvoice(inv); }}
+                                      >
+                                        {isConverting
+                                          ? <Loader2 className="h-4 w-4 animate-spin" />
+                                          : <ArrowRightCircle className="h-4 w-4" />
+                                        }
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Convertir en facture</TooltipContent>
+                                  </Tooltip>
+                                )}
+
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <Button variant="ghost" size="icon" className="h-8 w-8" disabled={isDownloading} onClick={(e) => { e.stopPropagation(); handleDownload(inv); }}>
@@ -564,7 +679,6 @@ const Dashboard = () => {
                                   <TooltipContent>Télécharger PDF</TooltipContent>
                                 </Tooltip>
 
-                                {/* Note de crédit */}
                                 {canCreditNote && (
                                   <Tooltip>
                                     <TooltipTrigger asChild>
@@ -576,7 +690,6 @@ const Dashboard = () => {
                                   </Tooltip>
                                 )}
 
-                                {/* Peppol Bêta */}
                                 {canCreditNote && (
                                   <Tooltip>
                                     <TooltipTrigger asChild>
@@ -602,7 +715,6 @@ const Dashboard = () => {
               </div>
             </Card>
 
-            {/* ── Modal note de crédit ─────────────────────────── */}
             <CreditNoteModal
               isOpen={!!creditNoteInvoice}
               onClose={() => setCreditNoteInvoice(null)}

@@ -11,7 +11,7 @@ import type { VatScenario } from "@/lib/vatScenario";
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue" | "cancelled";
-export type DocumentType = "invoice" | "credit_note" | "quote";
+export type DocumentType = "invoice" | "credit_note" | "quote" | "order";
 export type IssuerVatScheme = "normal" | "franchise" | "micro_fr" | "exempt_art44";
 
 export interface InvoiceItemInput {
@@ -50,8 +50,11 @@ export interface CreateInvoiceInput {
   document_type?: DocumentType;
   linked_invoice_id?: string | null;
   linked_invoice_number?: string | null;
-  // --- AJOUT : référence structurée belge +++XXX/XXXX/XXXXX+++ ---
   structured_ref?: string | null;
+  // Champs devis / bon de commande
+  validity_days?: number | null;
+  valid_until?: string | null;
+  client_reference?: string | null;
 }
 
 // --- DÉBUT SECTION : input note de crédit ---
@@ -94,8 +97,11 @@ export interface Invoice {
   document_type: DocumentType;
   linked_invoice_id: string | null;
   linked_invoice_number: string | null;
-  // --- AJOUT : référence structurée ---
   structured_ref: string | null;
+  // Champs devis / bon de commande
+  validity_days: number | null;
+  valid_until: string | null;
+  client_reference: string | null;
 }
 
 export interface InvoiceWithClient extends Invoice {
@@ -230,8 +236,10 @@ export const useInvoices = () => {
           document_type:         input.document_type ?? "invoice",
           linked_invoice_id:     input.linked_invoice_id ?? null,
           linked_invoice_number: input.linked_invoice_number ?? null,
-          // --- AJOUT : référence structurée belge ---
           structured_ref:        input.structured_ref ?? null,
+          validity_days:         input.validity_days ?? null,
+          valid_until:           input.valid_until ?? null,
+          client_reference:      input.client_reference ?? null,
           ...input.issuer_snapshot,
         }])
         .select()
@@ -323,6 +331,121 @@ export const useInvoices = () => {
   };
   // --- FIN SECTION : updateInvoiceStatus ---
 
+  // --- DÉBUT SECTION : convertToInvoice ---
+  /**
+   * Convertit un devis (quote) ou un bon de commande (order) en facture.
+   * - Génère un nouveau numéro INV-YYYY-XXXX
+   * - Duplique toutes les lignes
+   * - Lie la nouvelle facture au document source (linked_invoice_id)
+   * - Passe le document source en statut "cancelled"
+   */
+  const convertToInvoice = async (source: InvoiceWithClient): Promise<Invoice | null> => {
+    if (!user) { toast.error("Utilisateur non authentifié"); return null; }
+
+    if (!["quote", "order"].includes(source.document_type)) {
+      toast.error("Seuls les devis et bons de commande peuvent être convertis en facture");
+      return null;
+    }
+
+    if (!source.invoice_items?.length) {
+      toast.error("Lignes introuvables — rechargez la page");
+      return null;
+    }
+
+    setLoading(true);
+    let newInvoiceId: string | null = null;
+
+    try {
+      // 1. Nouveau numéro séquentiel INV-
+      const newNumber = await getNextInvoiceNumber();
+
+      const totals = computeTotals(
+        source.invoice_items.map((i) => ({
+          quantity: i.quantity,
+          unitPrice: i.unit_price,
+          vatRate: i.vat_rate,
+        })),
+      );
+
+      // 2. Créer la facture depuis le source
+      const { data: newInvoice, error: invError } = await supabase
+        .from("invoices")
+        .insert([{
+          user_id:               user.id,
+          client_id:             source.client_id,
+          business_profile_id:   source.business_profile_id,
+          invoice_number:        newNumber,
+          status:                "draft",
+          document_type:         "invoice",
+          issue_date:            new Date().toISOString().split("T")[0],
+          due_date:              null,
+          service_date:          null,
+          subtotal:              totals.subtotal,
+          vat_amount:            totals.vat_amount,
+          total:                 totals.total,
+          notes:                 source.notes,
+          pdf_path:              null,
+          vat_scenario:          source.vat_scenario,
+          issuer_vat_scheme:     source.issuer_vat_scheme,
+          // Lien vers le document source
+          linked_invoice_id:     source.id,
+          linked_invoice_number: source.invoice_number,
+          structured_ref:        null, // sera générée à l'envoi
+          // Snapshot émetteur conservé
+          issuer_company_name:   source.issuer_company_name,
+          issuer_vat_number:     source.issuer_vat_number,
+          issuer_street:         source.issuer_street,
+          issuer_zip_code:       source.issuer_zip_code,
+          issuer_city:           source.issuer_city,
+          issuer_country_code:   source.issuer_country_code,
+          issuer_email:          source.issuer_email,
+          issuer_iban:           source.issuer_iban,
+          issuer_logo_path:      source.issuer_logo_path,
+        }])
+        .select()
+        .single();
+
+      if (invError) throw invError;
+      newInvoiceId = newInvoice.id;
+
+      // 3. Dupliquer les lignes
+      const { error: itemsError } = await supabase
+        .from("invoice_items")
+        .insert(source.invoice_items.map((item) => ({
+          invoice_id:  newInvoice.id,
+          description: item.description,
+          quantity:    item.quantity,
+          unit_price:  item.unit_price,
+          vat_rate:    item.vat_rate,
+        })));
+
+      if (itemsError) throw itemsError;
+
+      // 4. Passer le document source en "cancelled"
+      const { error: cancelError } = await supabase
+        .from("invoices")
+        .update({ status: "cancelled" })
+        .eq("id", source.id)
+        .eq("user_id", user.id);
+
+      if (cancelError) throw cancelError;
+
+      const sourceLabel = source.document_type === "quote" ? "Devis" : "Bon de commande";
+      toast.success(`✅ ${sourceLabel} ${source.invoice_number} → Facture ${newNumber} créée`);
+      return newInvoice as Invoice;
+
+    } catch (err: unknown) {
+      if (newInvoiceId) await supabase.from("invoices").delete().eq("id", newInvoiceId);
+      const pgErr = err as PostgrestError;
+      toast.error("Erreur lors de la conversion");
+      console.error("[useInvoices] convertToInvoice:", pgErr.message ?? err);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+  // --- FIN SECTION : convertToInvoice ---
+
   // --- DÉBUT SECTION : createCreditNote ---
   const createCreditNote = async (input: CreateCreditNoteInput): Promise<Invoice | null> => {
     if (!user) { toast.error("Utilisateur non authentifié"); return null; }
@@ -367,7 +490,6 @@ export const useInvoices = () => {
           issuer_vat_scheme:     originalInvoice.issuer_vat_scheme,
           linked_invoice_id:     originalInvoice.id,
           linked_invoice_number: originalInvoice.invoice_number,
-          // Référence structurée de la note de crédit
           structured_ref:        originalInvoice.structured_ref ?? null,
           issuer_company_name:   originalInvoice.issuer_company_name,
           issuer_vat_number:     originalInvoice.issuer_vat_number,
@@ -422,6 +544,7 @@ export const useInvoices = () => {
   return {
     createInvoice,
     createCreditNote,
+    convertToInvoice,
     updateInvoiceStatus,
     getInvoices,
     getNextInvoiceNumber,
