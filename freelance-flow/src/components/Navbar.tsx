@@ -1,7 +1,8 @@
+// src/components/Navbar.tsx
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { FileText, LayoutDashboard, Settings, Users } from "lucide-react";
+import { FileText, LayoutDashboard, Settings, Users, Sparkles } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage, type Language } from "@/contexts/LanguageContext";
 import {
@@ -29,6 +30,8 @@ export function Navbar() {
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 glass-strong border-b">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
+
+        {/* ── Logo ── */}
         <Link to="/" className="flex items-center gap-2 font-display text-xl font-bold">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg gradient-primary">
             <FileText className="h-4 w-4 text-primary-foreground" />
@@ -37,6 +40,8 @@ export function Navbar() {
         </Link>
 
         <div className="flex items-center gap-2">
+
+          {/* ── Nav links (connecté) ── */}
           {isLoggedIn && (
             <div className="hidden md:flex items-center gap-1 mr-4 border-r pr-4">
               <Button variant="ghost" asChild size="sm">
@@ -45,14 +50,12 @@ export function Navbar() {
                   {t("nav.dashboard")}
                 </Link>
               </Button>
-
               <Button variant="ghost" asChild size="sm">
                 <Link to="/clients" className="gap-2">
                   <Users className="h-4 w-4" />
                   Clients
                 </Link>
               </Button>
-
               <Button variant="ghost" asChild size="sm">
                 <Link to="/settings" className="gap-2">
                   <Settings className="h-4 w-4" />
@@ -62,6 +65,20 @@ export function Navbar() {
             </div>
           )}
 
+          {/* ── Lien Démo — visible pour TOUS (connecté ou non) ── */}
+          <Button
+            variant="outline"
+            asChild
+            size="sm"
+            className="hidden md:flex gap-1.5 border-primary/30 text-primary hover:bg-primary/5"
+          >
+            <Link to="/demo">
+              <Sparkles className="h-3.5 w-3.5" />
+              Voir la démo
+            </Link>
+          </Button>
+
+          {/* ── Sélecteur de langue ── */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="gap-1.5 text-sm">
@@ -84,6 +101,7 @@ export function Navbar() {
 
           <ThemeToggle />
 
+          {/* ── Auth ── */}
           {isLoggedIn ? (
             <Button variant="ghost" onClick={logout} size="sm">
               {t("nav.logout")}
@@ -98,6 +116,7 @@ export function Navbar() {
               </Button>
             </>
           )}
+
         </div>
       </div>
     </nav>
