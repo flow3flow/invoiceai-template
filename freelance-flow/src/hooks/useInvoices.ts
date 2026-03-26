@@ -197,13 +197,13 @@ export const useInvoices = () => {
    *          paramètre année = p_fiscal_year (pas p_year)
    *          paramètre prefix = p_prefix
    */
-  const getNextInvoiceNumber = async (prefix: string = "INV"): Promise<string> => {
+  const getNextInvoiceNumber = async (prefix: string = "INV", businessProfileId: string,): Promise<string> => {
     if (!user) throw new Error("Utilisateur non authentifié");
 
     const fiscalYear = new Date().getFullYear();
 
     const { data, error } = await supabase.rpc("get_next_invoice_number", {
-      p_user_id:     user.id,
+      p_business_profile_id: businessProfileId,
       p_fiscal_year: fiscalYear,
       p_prefix:      prefix,
     });

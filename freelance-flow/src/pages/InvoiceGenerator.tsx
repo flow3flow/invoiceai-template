@@ -355,7 +355,9 @@ const InvoiceGenerator = () => {
         const prefixMap: Record<DocumentType, string> = {
           invoice: "INV", quote: "DEV", order: "BC", credit_note: "NC",
         };
-        const number = await getNextInvoiceNumber(prefixMap[docType] ?? "INV");
+        const profile = selectedBusinessProfile ?? defaultProfile;
+        if (!profile) return;
+        const number = await getNextInvoiceNumber(prefixMap[docType] ?? "INV", profile.id);
         if (!cancelled) updateInvoice({ invoiceNumber: number });
       } catch (err) {
         console.error("[InvoiceGenerator] getNextInvoiceNumber:", err);
