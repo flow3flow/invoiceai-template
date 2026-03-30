@@ -35,7 +35,7 @@ Depuis janvier 2026, tout freelance belge qui envoie une facture B2B par email a
 | # | Conflit identifié | Position A — Business / Loi | Position B — Technique réelle | Cause Racine | Statut |
 |---|---|---|---|---|---|
 | **C1** | **Peppol "conforme 2026" sans envoi UBL** | Le produit se commercialise comme "conforme Peppol 2026" à 19€/mois. La loi belge rend l'e-invoicing B2B obligatoire depuis janvier 2026. Sans envoi Peppol, le client B2B du freelance ne peut pas déduire sa TVA. Amende : jusqu'à 5 000€/an. | L'envoi UBL réel via Billit est planifié "post 10 clients". Aujourd'hui : `ublMapper.ts` documenté mais absent du codebase. `peppolSender.ts` inexistant. Seul le **check de présence** sur le réseau est implémenté — pas l'émission. | **Risque de Conformité** | 🔴 À TRAITER |
-| **C2** | **Deux moteurs de calcul avec arithmétiques différentes** | L'architecture (Règle 2) et le document `financialEngine.ts` imposent `decimal.js` pour tout calcul financier. Un float JS qui produit `0.1 + 0.2 = 0.30000000000000004` sur une facture B2B est une faute légale. | `supabase/functions/_shared/financialEngine.ts` utilise bien `decimal.js`. Mais `src/lib/invoiceCalculations.ts` (frontend, utilisé en production par `InvoiceGenerator.tsx`) utilise le **float JS natif**. Deux moteurs coexistent avec des résultats potentiellement divergents sur les arrondis. | **Dette Technique** | 🔴 À TRAITER |
+| **C2** | **Deux moteurs de calcul avec arithmétiques différentes** | L'architecture (Règle 2) et le document `financialEngine.ts` imposent `decimal.js` pour tout calcul financier. Un float JS qui produit `0.1 + 0.2 = 0.30000000000000004` sur une facture B2B est une faute légale. | `supabase/functions/_shared/financialEngine.ts` utilise bien `decimal.js`. Mais `src/lib/invoiceCalculations.ts` (frontend, utilisé en production par `InvoiceGenerator.tsx`) utilise le **float JS natif**. Deux moteurs coexistent avec des résultats potentiellement divergents sur les arrondis. | **Dette Technique** | 🟢 RÉSOLU |
 | **C3** | **`audit_logs` : obligation légale 7 ans, zéro alimentation** | Le droit comptable belge impose la conservation des pièces justificatives pendant 7 ans. En cas de contrôle fiscal, l'absence de traçabilité des actions (création, modification statut, envoi) est une infraction. Score Logs/Audit : **10/100** dans l'audit sécurité. | La table `audit_logs` est créée en DB. `logger.business()` est documenté avec redaction PII. Mais **aucune Edge Function ni aucun hook** n'appelle `logger.business()` en production. `createInvoice()`, `stripe-webhook`, `send-invoice-email` — tous silencieux. | **Risque de Conformité** | 🔴 À TRAITER |
 | **C4** | **Score sécurité 42/100 "non production-ready" vs Stripe en prod** | L'audit sécurité interne établit un score global de **42/100** et conclut explicitement : "Non production-ready". RLS : 40/100 (critique). RGPD : 30/100 (non conforme). Protection abus : 20/100 (inexistant). | Le Stripe Checkout à 19€/mois est **live et testé** sur `invoiceai-template.vercel.app`. Des utilisateurs réels peuvent s'abonner et confier leurs données fiscales (TVA, IBAN, adresse entreprise) à un système dont l'isolation multi-tenant et la protection RGPD sont critiquées par le propre audit du projet. | **Risque de Conformité** | 🔴 À TRAITER |
 | **C5** | **TVA 12% : ajoutée dans le code, hors scope dans la doctrine** | `vatRules.ts` (source de vérité déterministe documentée) classe `0.12` comme hors périmètre V1. La doctrine exige une whitelist stricte — jamais confier la fiscalité au LLM, jamais ajouter un taux non validé. | `LanguageContext.tsx` a ajouté le taux **12% BE** dans les 4 langues lors du Sprint 6. Ce taux est donc sélectionnable par l'utilisateur dans l'UI et persisté sur les factures, sans que `vatRules.ts` ait été mis à jour. Deux sources de vérité contradictoires. | **Contradiction IA** | 🔴 À TRAITER |
@@ -62,7 +62,7 @@ Depuis janvier 2026, tout freelance belge qui envoie une facture B2B par email a
 
 | Conflit | Risque concret | Action requise | Fichier(s) cible |
 |---------|----------------|----------------|-----------------|
-| **C2** — Double moteur float/decimal.js | Arrondi légalement incorrect sur factures | Migrer `invoiceCalculations.ts` vers `decimal.js` | `src/lib/invoiceCalculations.ts` |
+| **C2** — ~~Double moteur float/decimal.js~~ | ~~Arrondi légalement incorrect~~ | ✅ Migré vers `decimal.js` le 26/03/2026 | `src/lib/invoiceCalculations.ts` |
 | **C7** — peppol_id jamais persisté | UBL non routable à l'activation Billit | Persister résultat `checkPeppol()` dans `clients.peppol_id` | `src/pages/InvoiceGenerator.tsx` · `src/hooks/useClients.ts` |
 | **C9** — async_jobs non confirmée | Perte silencieuse si Billit timeout | Confirmer migration DB + déployer `job-worker` | `supabase/migrations/` · `supabase/functions/job-worker/` |
 
@@ -97,6 +97,8 @@ Pour chaque conflit, le passage au vert requiert :
 | Date | Conflit | Action effectuée | Résolu par |
 |------|---------|-----------------|-----------|
 | 26/03/2026 | — | Document créé, 10 conflits identifiés, tous à 🔴 | Claude / Flow |
+| 26/03/2026 | **C2** | `invoiceCalculations.ts` migré vers `decimal.js` · `Decimal.set({ precision: 20, rounding: ROUND_HALF_UP })` · `computeLineTotal()` ajouté · `npm install decimal.js` · Tests INV-2026-5253 PDF validés | Flow |
+| 26/03/2026 | **L2** | Migration SQL `get_next_invoice_number(p_business_profile_id)` déployée · plancher anti-doublon `GREATEST()` · `useInvoices.ts` + `InvoiceGenerator.tsx` mis à jour · Tests : DEV-2026-0001, INV-2026-5253, isolation multi-profil confirmée | Flow |
 
 ---
 
@@ -155,7 +157,7 @@ END; $$;
 
 Requiert migration DB + mise à jour de `useInvoices.ts` pour passer `business_profile_id` au lieu de `user_id`.
 
-**Statut :** 🔴 À TRAITER
+**Statut :** 🟢 RÉSOLU — Migration SQL `get_next_invoice_number(p_business_profile_id)` déployée le 26/03/2026. Plancher anti-doublon `GREATEST(max_profil, max_global_user)`. Tests validés : INV-2026-5253, DEV-2026-0001, isolation FlowAI_solutions confirmée.
 
 ---
 
@@ -221,7 +223,7 @@ Requiert migration DB + mise à jour de `useInvoices.ts` pour passer `business_p
 | Rang | Lacune | Criticité | Critère de classement |
 |------|--------|-----------|----------------------|
 | **#1** | L1 — DPA Anthropic/Resend absent | 🔴 Légal actif | Bloque la légalité de tout traitement en production dès le premier utilisateur. Exposition APD immédiate si signalement. |
-| **#2** | L2 — Numérotation multi-profil invalide | 🔴 Légal latent | Invisible aujourd'hui, produit des factures **légalement invalides** dès le premier client bi-société. Impossible à corriger rétroactivement sans renumérotation. |
+| ~~**#2**~~ | ~~L2 — Numérotation multi-profil invalide~~ | 🟢 RÉSOLU 26/03 | Migration SQL déployée · plancher anti-doublon · tests validés |
 | **#3** | L3 — Contrat Billit éditeur SaaS absent | 🟠 Business critique | Sans accès API Peppol production, C1 de l'audit reste rouge indéfiniment. Risque pricing à l'échelle qui détruit les marges. |
 | **#4** | L4 — Export portabilité RGPD Art. 20 absent | 🟠 Légal différé | Promesse contractuelle active via `/privacy`. Devient critique au premier utilisateur qui en fait la demande formelle (30 jours légaux). |
 | **#5** | L5 — Localisation NL absente | 🟡 Business structurant | Exclut 60% du marché adressable belge malgré la promesse du pitch commercial. Impact direct sur les projections MRR. |
@@ -392,9 +394,9 @@ Requiert migration DB + mise à jour de `useInvoices.ts` pour passer `business_p
 
 ### Les 7 Frictions Directes entre Documents
 
-**Friction 1 — Promesse d'intégrité vs code en production**
-`AI-ARCHITECTURE.md` (`import Decimal from 'decimal.js'` décrit comme obligatoire) **vs** `Architecture-Reference-v2.md` ("`decimal.js` non implémenté — DETTE BLOQUANTE")
-→ Le document technique le plus avancé décrit une implémentation correcte. L'état réel confirme qu'elle n'existe pas côté frontend. Tout lecteur externe du corpus croira le FIE implémenté correctement.
+**Friction 1 — ~~Promesse d'intégrité vs code en production~~ → 🟢 RÉSOLUE le 26/03/2026**
+`AI-ARCHITECTURE.md` (`import Decimal from 'decimal.js'` décrit comme obligatoire) ✅ **aligné** avec `src/lib/invoiceCalculations.ts` migré vers `decimal.js`.
+→ Les deux corpus sont maintenant synchronisés sur ce point.
 
 ---
 
@@ -410,9 +412,9 @@ Requiert migration DB + mise à jour de `useInvoices.ts` pour passer `business_p
 
 ---
 
-**Friction 4 — Numérotation "thread-safe" vs réalité multi-profil**
-`Architecture-Reference.md` (§3.2 — `generate_invoice_number(p_user_id)` comme solution définitive) **vs** `AUDIT_RISQUES.md` (L2 — "séquence partagée entre deux entités juridiques distinctes")
-→ Le bug légal le plus silencieux du corpus : invisible jusqu'au premier client bi-société, impossible à corriger rétroactivement sans renumérotation.
+**Friction 4 — ~~Numérotation "thread-safe" vs réalité multi-profil~~ → 🟢 RÉSOLUE le 26/03/2026**
+`get_next_invoice_number(p_business_profile_id)` déployée avec plancher `GREATEST(max_profil, max_global_user)` · migration-safe sur l'historique existant.
+→ Chaque société a désormais sa propre séquence légalement isolée.
 
 ---
 
